@@ -738,13 +738,19 @@ class RoutingApp(ctk.CTk):
     def build_plot(self):
         self.fig, self.ax = plt.subplots(figsize=(10, 7), dpi=100)
         self.fig.patch.set_facecolor(self.colors["panel"])
-        self.ax.set_aspect('equal', adjustable='box')
+        
+        # --- BURASI DEĞİŞTİ ---
+        # Eskiden 'equal' idi, bu yüzden kare kalıyordu. 
+        # 'auto' yapınca pencere ne kadar genişse o kadar yayılır.
+        self.ax.set_aspect('auto') 
+        # ----------------------
+        
         self.ax.set_axis_off()
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
-        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew", padx=12, pady=(12, 6))
+        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew", padx=0, pady=0) # Paddingleri de sıfırladık
 
-        # Mouse interactions for globe mode
+        # Mouse interactions
         self.canvas.mpl_connect('button_press_event', self._on_mouse_press)
         self.canvas.mpl_connect('motion_notify_event', self._on_mouse_motion)
         self.canvas.mpl_connect('button_release_event', self._on_mouse_release)
@@ -757,6 +763,9 @@ class RoutingApp(ctk.CTk):
 
         self.ax.clear()
         self.ax.set_axis_off()
+
+        self.ax.set_aspect('auto')  # Burada da auto olsun
+        self.fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
 
         nx.draw_networkx_edges(
             self.G, self.pos, ax=self.ax,

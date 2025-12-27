@@ -192,42 +192,13 @@ def compute_path_weighted(
 def compute_layout(
     G: nx.Graph,
     seed: int = 42,
-    layout: str = "spring",
-    spread: float = 2.8,      # büyütme katsayısı (artır: daha geniş)
+    layout: str = "random", # Varsayılanı 'random' yaptık
+    spread: float = 1.0,    # Random layout için spread'in etkisi azdır, 1.0 yeterli.
     k: Optional[float] = None,
-    iterations: int = 200
+    iterations: int = 50
 ) -> Dict[int, Tuple[float, float]]:
-    """
-    Daha geniş ve okunur layout üretir.
-    spread: pozisyonları ölçekler (grafiği büyütür)
-    k: node'lar arası mesafe parametresi (None ise otomatik seçilir)
-    """
-    n = max(G.number_of_nodes(), 1)
-
-    # k otomatik: n büyüdükçe daha seyrek olsun
-    if k is None:
-        # eski default ~ 1/sqrt(n). Biz bunu büyütüyoruz.
-        k = 2.5 / np.sqrt(n)
-
-    if layout == "spring":
-        pos = nx.spring_layout(G, seed=seed, k=k, iterations=iterations)
-    elif layout == "kamada_kawai":
-        pos = nx.kamada_kawai_layout(G)
-    elif layout == "spectral":
-        pos = nx.spectral_layout(G)
-    else:
-        pos = nx.spring_layout(G, seed=seed, k=k, iterations=iterations)
-
-    # Normalize + büyüt (grafiği genişletir)
-    xs = np.array([p[0] for p in pos.values()], dtype=float)
-    ys = np.array([p[1] for p in pos.values()], dtype=float)
-    xs = (xs - xs.mean()) / (xs.std() + 1e-9)
-    ys = (ys - ys.mean()) / (ys.std() + 1e-9)
-
-    keys = list(pos.keys())
-    for i, node in enumerate(keys):
-        pos[node] = (float(xs[i] * spread), float(ys[i] * spread))
-
+    
+    pos = nx.random_layout(G, seed=seed)
     return pos
 
 
