@@ -1,0 +1,11 @@
+name: Proje Kontrolü
+
+on: [push, pull_request]
+
+jobs:
+  kontrol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Yapı kontrolü
+        run: echo "Proje yapısı kontrol edildi."

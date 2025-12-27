@@ -1,0 +1,13 @@
+# Gereksiz sistem dosyalari
+__pycache__/
+*.pyc
+.DS_Store
+
+# Sanal ortam
+venv/
+env/
+
+# PyVis ve Gecici Ciktilar
+network.html
+lib/
+*.html
