@@ -1,7 +1,8 @@
 # ui_main.py
 import customtkinter as ctk
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.figure import Figure  # Pop-up sorunu için gerekli
 import networkx as nx
 from tkinter import messagebox
 import math
@@ -67,9 +68,12 @@ class RoutingApp(ctk.CTk):
         # Graph colors
         self.edge_color = "#A7B0C0"
         self.node_color = "#A9C9F7"
-        self.path_color = "#F6B26B"
-        self.src_color = "#7BDCB5"
-        self.dst_color = "#FF8A8A"
+        
+        # --- GÜNCELLENMİŞ RENK PALETİ ---
+        self.path_color = "#FFC107"         # Yol (Parlak Sarı/Turuncu)
+        self.src_color = "#7BDCB5"          # Kaynak (Yeşil)
+        self.dst_color = "#FF8A8A"          # Hedef (Kırmızı)
+        self.intermediate_color = "#0099FF" # Ara Düğümler (Mavi)
 
         # State
         self.theme = "Dark"
@@ -81,6 +85,7 @@ class RoutingApp(ctk.CTk):
         self.p = 0.40
         self.G = generate_graph(self.n, self.p, self.seed)
         self.pos = compute_layout(self.G, seed=self.seed)
+        self.current_path = None # Son çizilen yolu tutmak için
 
         # Globe view state (for stylized globe visualization)
         self.view_mode = "düz"  # "düz" or "küre"
@@ -154,7 +159,7 @@ class RoutingApp(ctk.CTk):
             self.fig.patch.set_facecolor(self.colors["panel"])
 
         self.apply_theme_to_widgets()
-        self.draw_graph(path=None)
+        self.draw_graph(path=self.current_path)
 
         if self.node_win is not None and self.node_win.winfo_exists():
             self.node_win.configure(fg_color=self.colors["panel"])
@@ -461,7 +466,7 @@ class RoutingApp(ctk.CTk):
         self.hint_lbl = ctk.CTkLabel(
             self.sidebar_scroll,
             text="İpucu: Düğüm listesi donma olmaması için\n parça parça yüklenir."
-                 "Yol bulunamazsa grafiği\n yenileyin veya S/D'yi değiştirin.",
+                 "Grafiğe ÇİFT TIKLAYARAK büyük ekranda açabilirsiniz.",
             text_color=self.colors["muted"],
             font=ctk.CTkFont(size=11),  # Biraz küçültüldü
             anchor="w",
@@ -731,7 +736,7 @@ class RoutingApp(ctk.CTk):
             self.d_node = node_id
             self.lbl_d.configure(text=f"Seçilen D: {self.d_node}")
 
-        self.draw_graph(path=None)
+        self.draw_graph(path=self.current_path)
         self.cleanup_node_selector()
 
     # ---------------- PLOT ----------------
@@ -757,47 +762,155 @@ class RoutingApp(ctk.CTk):
         self.canvas.mpl_connect('scroll_event', self._on_scroll)
 
     def draw_graph(self, path=None):
+        self.current_path = path
         # Globe mode takes over drawing
         if getattr(self, 'view_mode', 'düz') == 'küre':
             return self.draw_globe(path=path)
 
         self.ax.clear()
+        
+        # --- GÖRÜNÜM İYİLEŞTİRMELERİ ---
+        # 1. Eksenleri tamamen kapat ve marjları sıfırla (Grafik çerçeveye yayılsın)
         self.ax.set_axis_off()
-
         self.ax.set_aspect('auto')  # Burada da auto olsun
         self.fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-
+        
+        # 2. Arka plan çizgileri
         nx.draw_networkx_edges(
             self.G, self.pos, ax=self.ax,
-            width=0.15, edge_color=self.edge_color, alpha=0.08
+            width=0.3, 
+            edge_color=self.edge_color, 
+            alpha=0.2
         )
+        
+        # 3. Tüm Düğümler
         nx.draw_networkx_nodes(
             self.G, self.pos, ax=self.ax,
-            node_size=10, node_color=self.node_color, alpha=0.9
+            node_size=30, 
+            node_color=self.node_color, 
+            alpha=0.7
         )
 
+        # 4. Etiketler
         nx.draw_networkx_labels(
             self.G, self.pos,
             labels={n: str(n) for n in self.G.nodes()},
-            font_size=6,
+            font_size=7,
             font_color=self.colors["node_label"],
             ax=self.ax
         )
 
-        nx.draw_networkx_nodes(self.G, self.pos, ax=self.ax, nodelist=[self.s_node], node_size=90, node_color=self.src_color)
-        nx.draw_networkx_nodes(self.G, self.pos, ax=self.ax, nodelist=[self.d_node], node_size=90, node_color=self.dst_color)
+        # 5. Kaynak ve Hedef
+        nx.draw_networkx_nodes(self.G, self.pos, ax=self.ax, nodelist=[self.s_node], node_size=150, node_color=self.src_color)
+        nx.draw_networkx_nodes(self.G, self.pos, ax=self.ax, nodelist=[self.d_node], node_size=150, node_color=self.dst_color)
 
         if path and len(path) >= 2:
             edges = list(zip(path, path[1:]))
-            nx.draw_networkx_edges(self.G, self.pos, ax=self.ax, edgelist=edges, width=2.8, edge_color=self.path_color, alpha=0.95)
-            nx.draw_networkx_nodes(self.G, self.pos, ax=self.ax, nodelist=path, node_size=28, node_color=self.path_color, alpha=0.95)
+            
+            # Glow Efekti (Alt katman)
+            nx.draw_networkx_edges(
+                self.G, self.pos, ax=self.ax, 
+                edgelist=edges, width=6.0, 
+                edge_color=self.path_color, 
+                alpha=0.4
+            )
+            
+            # Ana Yol Çizgisi (Üst katman)
+            nx.draw_networkx_edges(
+                self.G, self.pos, ax=self.ax, 
+                edgelist=edges, width=3.0, 
+                edge_color=self.path_color, 
+                alpha=1.0
+            )
+            
+            # --- MAVİ ARA DÜĞÜMLER ---
+            # S ve D haricindeki düğümleri bul
+            inter_nodes = [n for n in path if n != self.s_node and n != self.d_node]
+            
+            if inter_nodes:
+                # Ara düğümleri mavi çiz
+                nx.draw_networkx_nodes(
+                    self.G, self.pos, ax=self.ax, 
+                    nodelist=inter_nodes, 
+                    node_size=80, 
+                    node_color=self.intermediate_color, 
+                    alpha=1.0, 
+                    edgecolors="white"
+                )
+                
+                # Ara düğümlerin etiketlerini beyaz ve kalın yap (okunabilirlik için)
+                nx.draw_networkx_labels(
+                    self.G, self.pos,
+                    labels={n: str(n) for n in inter_nodes},
+                    font_size=8,
+                    font_weight="bold",
+                    font_color="white",
+                    ax=self.ax
+                )
 
         self.canvas.draw()
+
+    # --- YENİ EKLENEN POP-UP ÖZELLİĞİ ---
+    def open_expanded_graph(self, path=None):
+        """Grafiği yeni, büyük bir pencerede, zoom özellikleri açık şekilde gösterir."""
+        
+        # Yeni Pencere (Toplevel)
+        top = ctk.CTkToplevel(self)
+        top.title("Detaylı Grafik İnceleme")
+        top.geometry("1100x850") # Başlangıç boyutu
+        top.configure(fg_color=self.colors["bg"])
+        top.focus_force()
+        
+        # Windows'ta tam ekran başlatma denemesi (state zoomed)
+        try:
+            top.state("zoomed")
+        except:
+            pass
+
+        # Üst Bilgi Barı
+        info_frame = ctk.CTkFrame(top, fg_color="transparent")
+        info_frame.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkButton(info_frame, text="Kapat", command=top.destroy, width=80, fg_color=self.colors["dst_color"]).pack(side="right", padx=10)
+
+        # Yeni Matplotlib Figure
+        fig = Figure(figsize=(12, 10), dpi=100) # Doğrudan Figure objesi kullanıldı
+        fig.patch.set_facecolor(self.colors["panel"])
+        ax = fig.add_subplot(111) # Axes ekle
+        
+        ax.set_axis_off()
+        ax.set_aspect('auto') # Pop-up'ta da auto olsun
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        
+        # --- ÇİZİM (Aynı detaylı stil) ---
+        nx.draw_networkx_edges(self.G, self.pos, ax=ax, width=0.3, edge_color=self.edge_color, alpha=0.2)
+        nx.draw_networkx_nodes(self.G, self.pos, ax=ax, node_size=40, node_color=self.node_color, alpha=0.7)
+        nx.draw_networkx_labels(self.G, self.pos, labels={n: str(n) for n in self.G.nodes()}, font_size=8, font_color=self.colors["text"], ax=ax)
+
+        nx.draw_networkx_nodes(self.G, self.pos, ax=ax, nodelist=[self.s_node], node_size=200, node_color=self.src_color)
+        nx.draw_networkx_nodes(self.G, self.pos, ax=ax, nodelist=[self.d_node], node_size=200, node_color=self.dst_color)
+
+        if path and len(path) >= 2:
+            edges = list(zip(path, path[1:]))
+            nx.draw_networkx_edges(self.G, self.pos, ax=ax, edgelist=edges, width=7.0, edge_color=self.path_color, alpha=0.4)
+            nx.draw_networkx_edges(self.G, self.pos, ax=ax, edgelist=edges, width=3.5, edge_color=self.path_color, alpha=1.0)
+            
+            inter = [n for n in path if n != self.s_node and n != self.d_node]
+            if inter:
+                nx.draw_networkx_nodes(self.G, self.pos, ax=ax, nodelist=inter, node_size=100, node_color=self.intermediate_color, edgecolors="white", alpha=1.0)
+
+        canvas = FigureCanvasTkAgg(fig, master=top)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        
+        toolbar = NavigationToolbar2Tk(canvas, top)
+        toolbar.update()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
 
     # ---------------- METRICS ----------------
     def on_view_change(self, name):
         self.view_mode = "küre" if name == "Küre" else "düz"
-        self.draw_graph(path=None)
+        self.draw_graph(path=self.current_path)
 
     def _lonlat_to_ortho(self, lon, lat, lon0, lat0, R):
         # Orthographic projection (inputs in degrees)
@@ -828,6 +941,8 @@ class RoutingApp(ctk.CTk):
     def draw_globe(self, path=None):
         self.ax.clear()
         self.ax.set_axis_off()
+        self.fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        
         R = 1.0 * self.globe_R
         # Sphere background
         sphere = Circle((0, 0), radius=R, facecolor=self.colors["panel"], edgecolor=self.colors["border"], zorder=0)
@@ -847,41 +962,54 @@ class RoutingApp(ctk.CTk):
             if vis.get(u) and vis.get(v):
                 segs.append([pts[u], pts[v]])
         if segs:
-            lc = LineCollection(segs, colors=self.edge_color, linewidths=0.5, alpha=0.08, zorder=1)
+            lc = LineCollection(segs, colors=self.edge_color, linewidths=0.5, alpha=0.2, zorder=1)
             self.ax.add_collection(lc)
 
         # Draw nodes
         xs = [pts[n][0] for n in self.G.nodes() if vis.get(n)]
         ys = [pts[n][1] for n in self.G.nodes() if vis.get(n)]
         if xs and ys:
-            self.ax.scatter(xs, ys, s=14, c=self.node_color, zorder=2)
+            self.ax.scatter(xs, ys, s=20, c=self.node_color, alpha=0.7, zorder=2)
 
         # Source / dest
         if self.s_node in pts and vis.get(self.s_node):
             x, y = pts[self.s_node]
-            self.ax.scatter([x], [y], s=90, c=self.src_color, zorder=3)
+            self.ax.scatter([x], [y], s=120, c=self.src_color, zorder=3)
         if self.d_node in pts and vis.get(self.d_node):
             x, y = pts[self.d_node]
-            self.ax.scatter([x], [y], s=90, c=self.dst_color, zorder=3)
+            self.ax.scatter([x], [y], s=120, c=self.dst_color, zorder=3)
 
         # Path highlight
         if path and len(path) >= 2:
             p_segs = []
+            ix, iy = [], []
             for u, v in zip(path, path[1:]):
                 if vis.get(u) and vis.get(v):
                     p_segs.append([pts[u], pts[v]])
+            
+            for n in path:
+                if vis.get(n) and n not in [self.s_node, self.d_node]:
+                    ix.append(pts[n][0])
+                    iy.append(pts[n][1])
+
             if p_segs:
-                plc = LineCollection(p_segs, colors=self.path_color, linewidths=2.5, alpha=0.95, zorder=4)
-                self.ax.add_collection(plc)
-                xs = [pts[n][0] for n in path if vis.get(n)]
-                ys = [pts[n][1] for n in path if vis.get(n)]
-                self.ax.scatter(xs, ys, s=28, c=self.path_color, zorder=4)
+                self.ax.add_collection(LineCollection(p_segs, colors=self.path_color, linewidths=5.0, alpha=0.4, zorder=4))
+                self.ax.add_collection(LineCollection(p_segs, colors=self.path_color, linewidths=2.5, alpha=1.0, zorder=5))
+            
+            if ix:
+                self.ax.scatter(ix, iy, s=60, c=self.intermediate_color, alpha=1.0, zorder=6, edgecolors="white")
 
         self.ax.set_xlim(-R * 1.1, R * 1.1)
         self.ax.set_ylim(-R * 1.1, R * 1.1)
         self.canvas.draw()
 
     def _on_mouse_press(self, event):
+        # 1. Çift Tıklama Kontrolü (Yeni Özellik)
+        if event.dblclick and event.button == 1:
+            if event.inaxes == self.ax and getattr(self, 'view_mode', 'düz') == 'düz':
+                self.open_expanded_graph(self.current_path)
+                return
+
         if getattr(self, 'view_mode', 'düz') != 'küre':
             return
         if event.inaxes != self.ax:
@@ -904,7 +1032,7 @@ class RoutingApp(ctk.CTk):
         self.globe_lat -= dy * 0.18
         self.globe_lat = max(-89.0, min(89.0, self.globe_lat))
         self._globe_last_xy = (x, y)
-        self.draw_graph(path=None)
+        self.draw_graph(path=self.current_path)
 
     def _on_mouse_release(self, event):
         self._globe_dragging = False
@@ -926,7 +1054,7 @@ class RoutingApp(ctk.CTk):
         else:
             self.globe_R /= 1.1
         self.globe_R = max(0.3, min(3.0, self.globe_R))
-        self.draw_graph(path=None)
+        self.draw_graph(path=self.current_path)
 
     def build_metrics(self):
         # Üstteki özet satırı kaldırıldı - bilgiler artık Yol Detayları panelinde
@@ -1455,7 +1583,7 @@ class ComparisonWindow(ctk.CTkToplevel):
             
             # Metrikler
             values = [avg_delay, avg_reliability_cost, avg_resource_cost, avg_total_cost, 
-                     std_cost, best_cost, worst_cost, avg_runtime]
+                      std_cost, best_cost, worst_cost, avg_runtime]
             
             for col_idx, value in enumerate(values, start=1):
                 if col_idx == 8:  # Runtime (son sütun)
@@ -1585,9 +1713,11 @@ class ComparisonWindow(ctk.CTkToplevel):
         # Grafik renkleri (RoutingApp'ten alınan değerler)
         edge_color = "#A7B0C0"
         node_color = "#A9C9F7"
-        path_color = "#F6B26B"
+        # Karşılaştırma ekranı için de parlak sarı yol rengi
+        path_color = "#FFC107"
         src_color = "#7BDCB5"
         dst_color = "#FF8A8A"
+        intermediate_color = "#0099FF" # Mavi ara düğüm
         
         for algo_name in self.algo_names:
             if algo_name not in self.tab_frames:
@@ -1599,17 +1729,21 @@ class ComparisonWindow(ctk.CTkToplevel):
             # Matplotlib figure oluştur
             fig, ax = plt.subplots(figsize=(10, 7), dpi=100)
             fig.patch.set_facecolor(self.colors["panel"])
-            ax.set_aspect('equal', adjustable='box')
+            
+            # --- GÖRÜNÜM AYARLARI (TAM EKRAN YAYILMA) ---
+            ax.set_aspect('auto')  # Kare zorunluluğunu kaldırdık
             ax.set_axis_off()
+            # Kenar boşluklarını sıfırladık
+            fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
             
             # Grafiği çiz
             nx.draw_networkx_edges(
                 self.G, self.pos, ax=ax,
-                width=0.15, edge_color=edge_color, alpha=0.08
+                width=0.3, edge_color=edge_color, alpha=0.2
             )
             nx.draw_networkx_nodes(
                 self.G, self.pos, ax=ax,
-                node_size=10, node_color=node_color, alpha=0.9
+                node_size=30, node_color=node_color, alpha=0.7
             )
             
             nx.draw_networkx_labels(
@@ -1623,30 +1757,43 @@ class ComparisonWindow(ctk.CTkToplevel):
             # Kaynak ve hedef düğümleri
             nx.draw_networkx_nodes(
                 self.G, self.pos, ax=ax,
-                nodelist=[self.src], node_size=90, node_color=src_color
+                nodelist=[self.src], node_size=120, node_color=src_color
             )
             nx.draw_networkx_nodes(
                 self.G, self.pos, ax=ax,
-                nodelist=[self.dst], node_size=90, node_color=dst_color
+                nodelist=[self.dst], node_size=120, node_color=dst_color
             )
             
             # Path çiz
             if path and len(path) >= 2:
                 edges = list(zip(path, path[1:]))
+                
+                # Glow efekti
                 nx.draw_networkx_edges(
                     self.G, self.pos, ax=ax,
-                    edgelist=edges, width=2.8, edge_color=path_color, alpha=0.95
+                    edgelist=edges, width=5.0, edge_color=path_color, alpha=0.4
                 )
-                nx.draw_networkx_nodes(
+                # Ana çizgi
+                nx.draw_networkx_edges(
                     self.G, self.pos, ax=ax,
-                    nodelist=path, node_size=28, node_color=path_color, alpha=0.95
+                    edgelist=edges, width=2.5, edge_color=path_color, alpha=1.0
                 )
+                
+                # --- MAVİ ARA DÜĞÜMLER ---
+                inter_nodes = [n for n in path if n != self.src and n != self.dst]
+                if inter_nodes:
+                    nx.draw_networkx_nodes(
+                        self.G, self.pos, ax=ax,
+                        nodelist=inter_nodes, node_size=60, 
+                        node_color=intermediate_color, alpha=1.0, edgecolors="white"
+                    )
+
             else:
                 # Path yoksa bilgi mesajı
                 ax.text(0.5, 0.5, "Yol bulunamadı", 
-                       transform=ax.transAxes,
-                       ha='center', va='center',
-                       fontsize=14, color=self.colors["muted"])
+                        transform=ax.transAxes,
+                        ha='center', va='center',
+                        fontsize=14, color=self.colors["muted"])
             
             # Canvas oluştur ve tab'e ekle
             canvas = FigureCanvasTkAgg(fig, master=tab)
