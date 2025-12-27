@@ -414,7 +414,8 @@ def compare(
     w_rel: float,
     w_res: float,
     num_runs: int = 5,
-    default_params: Optional[Dict[str, Dict[str, Any]]] = None
+    default_params: Optional[Dict[str, Dict[str, Any]]] = None,
+    demand_mbps: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Tüm algoritmaları aynı koşullarda karşılaştırır.
@@ -518,7 +519,7 @@ def compare(
                     continue
                 
                 # Metrikleri MetricsEngine ile hesapla
-                pm = engine.compute(path)
+                pm = engine.compute(path, demand_mbps=demand_mbps)
                 total_cost = engine.weighted_sum(pm, weights_obj)
                 
                 # runs_table için veri hazırla
@@ -593,4 +594,114 @@ def compare(
         "runs_table": runs_table,
         "summary_table": summary_table,
         "best_paths_by_algo": best_paths_by_algo
+    }
+
+
+def compare_batch_for_scenarios(
+    G: nx.Graph,
+    scenarios: List[Dict[str, Any]],
+    w_delay: float = 0.33,
+    w_rel: float = 0.33,
+    w_res: float = 0.34,
+    num_runs: int = 5,
+    default_params: Optional[Dict[str, Dict[str, Any]]] = None,
+    base_seed: int = 1000
+) -> Dict[str, Any]:
+    """
+    Birden fazla (S, D, B) senaryosu için algoritmaları batch modda karşılaştırır.
+    
+    Args:
+        G: NetworkX graph instance (tüm senaryolarda aynı graph kullanılır)
+        scenarios: List[Dict] - Her dict {'scenario_id': int, 'S': int, 'D': int, 'B': float}
+        w_delay: Delay weight
+        w_rel: Reliability weight
+        w_res: Resource weight
+        num_runs: Her algoritma için çalıştırma sayısı (N ≥ 5)
+        default_params: Algoritma adına göre varsayılan parametreler (opsiyonel)
+        base_seed: Algoritma seed'leri için base değer
+    
+    Returns:
+        {
+            "all_runs": List[Dict] - Tüm run'lar için detaylı veri
+            "summary_by_scenario": Dict[int, List] - Senaryo bazında özet
+        }
+    """
+    all_runs = []
+    summary_by_scenario = {}
+    
+    for sc in scenarios:
+        scenario_id = sc.get('scenario_id', 0)
+        S = sc['S']
+        D = sc['D']
+        B = sc.get('B', 1.0)
+        
+        # Her algoritma için varsayılan parametreleri hazırla (B'yi ekle)
+        if default_params is None:
+            default_params = {}
+            for algo_name in list_algorithms():
+                meta = get_algorithm_meta(algo_name)
+                if meta and 'params' in meta:
+                    algo_defaults = {}
+                    for p in meta['params']:
+                        algo_defaults[p['name']] = p.get('default', 0)
+                    # ACO ve SA için demand_bw ekle
+                    if algo_name in ["ACO (Ant Colony)", "Simulated Annealing (SA)"]:
+                        algo_defaults['demand_bw'] = B
+                    default_params[algo_name] = algo_defaults
+        else:
+            # Mevcut default_params'e B'yi ekle
+            for algo_name in default_params:
+                if algo_name in ["ACO (Ant Colony)", "Simulated Annealing (SA)"]:
+                    default_params[algo_name]['demand_bw'] = B
+        
+        # Tek senaryo için compare() çağır
+        try:
+            result = compare(
+                G=G,
+                src=S,
+                dst=D,
+                w_delay=w_delay,
+                w_rel=w_rel,
+                w_res=w_res,
+                num_runs=num_runs,
+                default_params=default_params,
+                demand_mbps=B
+            )
+            
+            # runs_table formatı: [algorithm_name, run_id, total_delay, reliability_cost, resource_cost, total_cost, runtime_ms, path]
+            for row in result.get('runs_table', []):
+                algo_name = row[0]
+                run_id = row[1]
+                total_delay = row[2]
+                reliability_cost = row[3]
+                resource_cost = row[4]
+                total_cost = row[5]
+                runtime_ms = row[6]
+                path = row[7] if len(row) > 7 else []
+                
+                all_runs.append({
+                    'scenario_id': scenario_id,
+                    'S': S,
+                    'D': D,
+                    'B': B,
+                    'algorithm': algo_name,
+                    'run_id': run_id,
+                    'total_delay': total_delay,
+                    'reliability_cost': reliability_cost,
+                    'resource_cost': resource_cost,
+                    'total_cost': total_cost,
+                    'runtime_ms': runtime_ms,
+                    'path': path
+                })
+            
+            # Summary'yi sakla
+            summary_by_scenario[scenario_id] = result.get('summary_table', [])
+        
+        except Exception as e:
+            # Hata durumunda boş sonuç ekle
+            summary_by_scenario[scenario_id] = []
+    
+    return {
+        "all_runs": all_runs,
+        "summary_by_scenario": summary_by_scenario
     }
