@@ -91,7 +91,12 @@ altında çalıştırılarak **adil bir karşılaştırma ortamı** sağlanır.
 ├── data/                # Veri dosyaları
 │   ├── topology/        # Ağ topolojisi üretimi (seed tabanlı)
 │   └── datasets/        # Test ve örnek veri setleri
-├── experiments/         # Deney sonuçları ve loglar
+├── experiments/
+ ├── run_experiments.py      # Toplu (batch) deney çalıştırma scripti
+ ├── scenarios.csv           # (S, D, B) deney senaryoları
+ └── results/
+     ├── runs_table.csv      # Tüm tekrarların ham sonuçları
+     └── summary_table.csv   # Ortalama, std, en iyi / en kötü sonuçlar
 ├── scripts/             # Yardımcı otomasyon ve test scriptleri
 └── .github/
     └── workflows/       # GitHub Actions ayar dosyaları
