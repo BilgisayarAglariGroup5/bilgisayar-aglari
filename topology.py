@@ -189,8 +189,47 @@ def compute_path_weighted(
     return RoutingResult(path=path, metrics=metrics, note="OK", hops=hops)
 
 
-def compute_layout(G: nx.Graph, seed: int = 42) -> Dict[int, Tuple[float, float]]:
-    return nx.spring_layout(G, seed=seed)
+def compute_layout(
+    G: nx.Graph,
+    seed: int = 42,
+    layout: str = "spring",
+    spread: float = 2.8,      # büyütme katsayısı (artır: daha geniş)
+    k: Optional[float] = None,
+    iterations: int = 200
+) -> Dict[int, Tuple[float, float]]:
+    """
+    Daha geniş ve okunur layout üretir.
+    spread: pozisyonları ölçekler (grafiği büyütür)
+    k: node'lar arası mesafe parametresi (None ise otomatik seçilir)
+    """
+    n = max(G.number_of_nodes(), 1)
+
+    # k otomatik: n büyüdükçe daha seyrek olsun
+    if k is None:
+        # eski default ~ 1/sqrt(n). Biz bunu büyütüyoruz.
+        k = 2.5 / np.sqrt(n)
+
+    if layout == "spring":
+        pos = nx.spring_layout(G, seed=seed, k=k, iterations=iterations)
+    elif layout == "kamada_kawai":
+        pos = nx.kamada_kawai_layout(G)
+    elif layout == "spectral":
+        pos = nx.spectral_layout(G)
+    else:
+        pos = nx.spring_layout(G, seed=seed, k=k, iterations=iterations)
+
+    # Normalize + büyüt (grafiği genişletir)
+    xs = np.array([p[0] for p in pos.values()], dtype=float)
+    ys = np.array([p[1] for p in pos.values()], dtype=float)
+    xs = (xs - xs.mean()) / (xs.std() + 1e-9)
+    ys = (ys - ys.mean()) / (ys.std() + 1e-9)
+
+    keys = list(pos.keys())
+    for i, node in enumerate(keys):
+        pos[node] = (float(xs[i] * spread), float(ys[i] * spread))
+
+    return pos
+
 
 
 def build_hops_for_path(G: nx.Graph, path: List[int], w_delay: float, w_rel: float, w_res: float, source: int, target: int) -> List[Dict[str, Any]]:

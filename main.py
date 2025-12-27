@@ -460,8 +460,8 @@ class RoutingApp(ctk.CTk):
 
         self.hint_lbl = ctk.CTkLabel(
             self.sidebar_scroll,
-            text="İpucu: Düğüm listesi donma olmaması için parça parça yüklenir.\n"
-                 "Yol bulunamazsa grafiği yenileyin veya S/D'yi değiştirin.",
+            text="İpucu: Düğüm listesi donma olmaması için\n parça parça yüklenir."
+                 "Yol bulunamazsa grafiği\n yenileyin veya S/D'yi değiştirin.",
             text_color=self.colors["muted"],
             font=ctk.CTkFont(size=11),  # Biraz küçültüldü
             anchor="w",
