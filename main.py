@@ -13,13 +13,15 @@ from topology import generate_graph, compute_layout, build_hops_for_path
 
 # Algorithms adapter: import helper functions with safe fallbacks if adapter missing
 try:
-    from algorithms.adapter import list_algorithms, get_algorithm_meta, run as run_algorithm
+    from algorithms.adapter import list_algorithms, get_algorithm_meta, run as run_algorithm, compare as compare_algorithms
 except Exception:
     def list_algorithms():
         return ["ACO (Ant Colony)", "Genetik (GA)", "Q-Learning", "Simulated Annealing (SA)"]
     def get_algorithm_meta(name):
         return None
     def run_algorithm(name, G, src, dst, w_delay, w_rel, w_res, params):
+        raise RuntimeError("Algorithms adapter not available")
+    def compare_algorithms(*args, **kwargs):
         raise RuntimeError("Algorithms adapter not available")
 
 
@@ -30,8 +32,8 @@ class RoutingApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("QoS Multi-Objective Routing Optimization")
-        self.geometry("1300x850")
-        self.minsize(1200, 760)
+        self.geometry("1400x850")  # Genişlik artırıldı sidebar için daha fazla alan
+        self.minsize(1300, 760)  # Minimum genişlik artırıldı
 
         # ---------- THEME DICT ----------
         self.themes = {
@@ -103,10 +105,13 @@ class RoutingApp(ctk.CTk):
 
         # ---------- LAYOUT ----------
         self.configure(fg_color=self.colors["bg"])
+        # Sidebar için minimum genişlik garantisi
+        self.grid_columnconfigure(0, weight=0, minsize=460)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        self.sidebar = ctk.CTkFrame(self, width=420, corner_radius=16, fg_color=self.colors["panel"])
+        # Sidebar için yeterli genişlik (içerik taşmasını önlemek için)
+        self.sidebar = ctk.CTkFrame(self, width=460, corner_radius=16, fg_color=self.colors["panel"])
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=(20, 10), pady=20)
 
         self.main_frame = ctk.CTkFrame(self, corner_radius=16, fg_color=self.colors["panel"])
@@ -187,6 +192,13 @@ class RoutingApp(ctk.CTk):
                     hover_color=self.colors["btn_hover"],
                     text_color=self.colors["panel"],
                 )
+        
+        if hasattr(self, "btn_compare"):
+            self.btn_compare.configure(
+                fg_color="#9B59B6",
+                hover_color="#8E44AD",
+                text_color="white",
+            )
 
         if hasattr(self, "btn_regen"):
             self.btn_regen.configure(
@@ -204,8 +216,7 @@ class RoutingApp(ctk.CTk):
             if hasattr(self, name):
                 getattr(self, name).configure(text_color=self.colors["text"])
 
-        if hasattr(self, "metrics"):
-            self.metrics.configure(text_color=self.colors["text"])
+        # Üstteki özet satırı kaldırıldı
 
         if hasattr(self, "normalize_cb"):
             self.normalize_cb.configure(text_color=self.colors["text"])
@@ -263,15 +274,23 @@ class RoutingApp(ctk.CTk):
     # ---------------- SIDEBAR ----------------
     def build_sidebar(self):
         # Scrollable content area to ensure buttons are reachable on small screens
-        self.sidebar_scroll = ctk.CTkScrollableFrame(self.sidebar, corner_radius=12)
+        # label_text_color ve label_fg_color parametreleri scrollbar görünümünü kontrol eder
+        self.sidebar_scroll = ctk.CTkScrollableFrame(
+            self.sidebar, 
+            corner_radius=12,
+            scrollbar_button_color=self.colors["border"],
+            scrollbar_button_hover_color=self.colors["btn"]
+        )
         self.sidebar_scroll.pack(fill="both", expand=True, padx=8, pady=8)
 
         self.title_lbl = ctk.CTkLabel(
             self.sidebar_scroll, text="Kontrol Paneli",
             font=ctk.CTkFont(size=22, weight="bold"),
-            text_color=self.colors["text"]
+            text_color=self.colors["text"],
+            anchor="w",
+            justify="left"
         )
-        self.title_lbl.pack(padx=16, pady=(18, 10), anchor="w")
+        self.title_lbl.pack(padx=16, pady=(18, 10), anchor="w", fill="x")
 
         self.theme_menu = ctk.CTkOptionMenu(
             self.sidebar_scroll, values=["Light", "Dark"],
@@ -283,9 +302,11 @@ class RoutingApp(ctk.CTk):
         self.section_node_lbl = ctk.CTkLabel(
             self.sidebar_scroll, text="Düğüm Seçimi",
             text_color=self.colors["text"],
-            font=ctk.CTkFont(size=14, weight="normal")
+            font=ctk.CTkFont(size=14, weight="normal"),
+            anchor="w",
+            justify="left"
         )
-        self.section_node_lbl.pack(padx=16, pady=(6, 6), anchor="w")
+        self.section_node_lbl.pack(padx=16, pady=(6, 6), anchor="w", fill="x")
 
         self.node_card = ctk.CTkFrame(
             self.sidebar_scroll, fg_color=self.colors["bg"],
@@ -297,9 +318,12 @@ class RoutingApp(ctk.CTk):
             self.node_card,
             text="Kaynak ve hedef düğümleri seçin (S ≠ D).",
             font=ctk.CTkFont(size=12, weight="normal"),
-            text_color=self.colors["muted"]
+            text_color=self.colors["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=400
         )
-        self.node_card_hint.pack(padx=12, pady=(10, 8), anchor="w")
+        self.node_card_hint.pack(padx=12, pady=(10, 8), anchor="w", fill="x")
 
         self.btn_select_s = ctk.CTkButton(
             self.node_card, text="Kaynak Düğüm Seç",
@@ -318,23 +342,29 @@ class RoutingApp(ctk.CTk):
         self.lbl_s = ctk.CTkLabel(
             self.node_card, text=f"Seçilen S: {self.s_node}",
             font=ctk.CTkFont(size=12),
-            text_color=self.colors["text"]
+            text_color=self.colors["text"],
+            anchor="w",
+            justify="left"
         )
-        self.lbl_s.pack(padx=12, pady=(0, 2), anchor="w")
+        self.lbl_s.pack(padx=12, pady=(0, 2), anchor="w", fill="x")
 
         self.lbl_d = ctk.CTkLabel(
             self.node_card, text=f"Seçilen D: {self.d_node}",
             font=ctk.CTkFont(size=12),
-            text_color=self.colors["text"]
+            text_color=self.colors["text"],
+            anchor="w",
+            justify="left"
         )
-        self.lbl_d.pack(padx=12, pady=(0, 10), anchor="w")
+        self.lbl_d.pack(padx=12, pady=(0, 10), anchor="w", fill="x")
 
         self.section_weight_lbl = ctk.CTkLabel(
             self.sidebar_scroll, text="Optimizasyon Ağırlıkları",
             text_color=self.colors["text"],
-            font=ctk.CTkFont(size=14, weight="normal")
+            font=ctk.CTkFont(size=14, weight="normal"),
+            anchor="w",
+            justify="left"
         )
-        self.section_weight_lbl.pack(padx=16, pady=(10, 6), anchor="w")
+        self.section_weight_lbl.pack(padx=16, pady=(10, 6), anchor="w", fill="x")
 
         self.w_delay_title, self.w_delay, self.w_delay_lbl = self.slider_with_value("Hız / Gecikme", 0.33, self.SOFT_BLUE)
         self.w_rel_title, self.w_rel, self.w_rel_lbl = self.slider_with_value("Güvenlik", 0.33, self.SOFT_YELLOW)
@@ -345,9 +375,11 @@ class RoutingApp(ctk.CTk):
             self.sidebar,
             text="Ağırlık Toplamı: 1.00",
             text_color=self.colors["muted"],
-            font=ctk.CTkFont(size=12)
+            font=ctk.CTkFont(size=12),
+            anchor="w",
+            justify="left"
         )
-        self.sum_lbl.pack(padx=16, pady=(0, 8), anchor="w")
+        self.sum_lbl.pack(padx=16, pady=(0, 8), anchor="w", fill="x")
 
         # Hook slider changes to update sum label (and keep value labels)
         self.w_delay.configure(command=lambda v: (self.w_delay_lbl.configure(text=f"{float(v):.2f}"), self.on_weight_change()))
@@ -357,18 +389,29 @@ class RoutingApp(ctk.CTk):
         # Algoritma seçimi
         algo_list = list_algorithms()
 
-        ctk.CTkLabel(
+        algo_label = ctk.CTkLabel(
             self.sidebar_scroll, text="Algoritma",
             text_color=self.colors["text"],
-            font=ctk.CTkFont(size=12)
-        ).pack(padx=16, pady=(8, 4), anchor="w")
+            font=ctk.CTkFont(size=12),
+            anchor="w",
+            justify="left"
+        )
+        algo_label.pack(padx=16, pady=(8, 4), anchor="w", fill="x")
 
         self.algo_menu = ctk.CTkOptionMenu(self.sidebar_scroll, values=algo_list, command=self.on_algo_change)
         self.algo_menu.set(algo_list[0])
         self.algo_menu.pack(padx=16, pady=(0, 8), fill="x")
 
         # View mode: Düz / Küre
-        ctk.CTkLabel(self.sidebar_scroll, text="Görünüm", text_color=self.colors["text"], font=ctk.CTkFont(size=12)).pack(padx=16, pady=(6, 2), anchor="w")
+        view_label = ctk.CTkLabel(
+            self.sidebar_scroll, 
+            text="Görünüm", 
+            text_color=self.colors["text"], 
+            font=ctk.CTkFont(size=12),
+            anchor="w",
+            justify="left"
+        )
+        view_label.pack(padx=16, pady=(6, 2), anchor="w", fill="x")
         self.view_menu = ctk.CTkOptionMenu(self.sidebar_scroll, values=["Düz", "Küre"], command=self.on_view_change)
         self.view_menu.set("Düz")
         self.view_menu.pack(padx=16, pady=(0, 8), fill="x")
@@ -381,11 +424,12 @@ class RoutingApp(ctk.CTk):
 
         self.normalize_var = ctk.BooleanVar(value=True)
         self.normalize_cb = ctk.CTkCheckBox(
-            self.sidebar_scroll, text="Ağırlıkları Normalize Et (Toplam=1)",
+            self.sidebar_scroll, 
+            text="Ağırlıkları Normalize Et (Toplam=1)",
             variable=self.normalize_var,
             text_color=self.colors["text"]
         )
-        self.normalize_cb.pack(padx=16, pady=(6, 10), anchor="w")
+        self.normalize_cb.pack(padx=16, pady=(6, 10), anchor="w", fill="x")
 
         # ✅ HESAPLA button (fixed place)
         self.btn_calc = ctk.CTkButton(
@@ -393,6 +437,14 @@ class RoutingApp(ctk.CTk):
             command=self.on_calculate, corner_radius=12
         )
         self.btn_calc.pack(padx=16, pady=(6, 6), fill="x")
+
+        # ✅ COMPARE ALGORITHMS button
+        self.btn_compare = ctk.CTkButton(
+            self.sidebar_scroll, text="Algoritmaları Karşılaştır",
+            command=self.on_compare_algorithms, corner_radius=12,
+            fg_color="#9B59B6", hover_color="#8E44AD"
+        )
+        self.btn_compare.pack(padx=16, pady=(6, 6), fill="x")
 
         self.btn_regen = ctk.CTkButton(
             self.sidebar_scroll, text="GRAFİĞİ YENİLE (Seed + 1)",
@@ -409,12 +461,14 @@ class RoutingApp(ctk.CTk):
         self.hint_lbl = ctk.CTkLabel(
             self.sidebar_scroll,
             text="İpucu: Düğüm listesi donma olmaması için parça parça yüklenir.\n"
-                 "Yol bulunamazsa grafiği yenileyin veya S/D’yi değiştirin.",
+                 "Yol bulunamazsa grafiği yenileyin veya S/D'yi değiştirin.",
             text_color=self.colors["muted"],
-            font=ctk.CTkFont(size=12),
-            justify="left"
+            font=ctk.CTkFont(size=11),  # Biraz küçültüldü
+            anchor="w",
+            justify="left",
+            wraplength=400
         )
-        self.hint_lbl.pack(padx=16, pady=(8, 0), anchor="w")
+        self.hint_lbl.pack(padx=16, pady=(8, 0), anchor="w", fill="x")
 
         # Initial sum update
         self.on_weight_change()
@@ -482,15 +536,34 @@ class RoutingApp(ctk.CTk):
         frame = ctk.CTkFrame(self.sidebar_scroll, fg_color="transparent")
         frame.pack(fill="x", padx=16, pady=(0, 8))
 
+        # Başlık ve değer için üst frame (dikey hizalama)
         top = ctk.CTkFrame(frame, fg_color="transparent")
         top.pack(fill="x")
 
-        title_lbl = ctk.CTkLabel(top, text=title, text_color=self.colors["text"], font=ctk.CTkFont(size=12))
-        title_lbl.pack(side="left")
+        # Başlık label'ı (sol taraf, word-wrap ile)
+        title_lbl = ctk.CTkLabel(
+            top, 
+            text=title, 
+            text_color=self.colors["text"], 
+            font=ctk.CTkFont(size=11),  # Biraz küçültüldü uzun metinler için
+            anchor="w",
+            justify="left",
+            wraplength=320  # Satır kırılma için
+        )
+        title_lbl.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
-        val_lbl = ctk.CTkLabel(top, text=f"{default:.2f}", text_color=self.colors["muted"], font=ctk.CTkFont(size=12))
-        val_lbl.pack(side="right")
+        # Değer label'ı (sağ taraf, sabit genişlik)
+        val_lbl = ctk.CTkLabel(
+            top, 
+            text=f"{default:.2f}", 
+            text_color=self.colors["muted"], 
+            font=ctk.CTkFont(size=12),
+            width=50,
+            anchor="e"
+        )
+        val_lbl.pack(side="right", padx=(8, 0))
 
+        # Slider (başlığın altında)
         slider = ctk.CTkSlider(frame, from_=0, to=1, progress_color=color, button_color=color)
         slider.set(default)
         slider.pack(fill="x", pady=(6, 0))
@@ -847,20 +920,14 @@ class RoutingApp(ctk.CTk):
         self.draw_graph(path=None)
 
     def build_metrics(self):
-        self.metrics = ctk.CTkLabel(
-            self.main_frame,
-            text="",
-            text_color=self.colors["text"],
-            font=ctk.CTkFont(size=14)
-        )
-        self.metrics.grid(row=1, column=0, pady=8, sticky="w")
-
+        # Üstteki özet satırı kaldırıldı - bilgiler artık Yol Detayları panelinde
+        
         self.details_container = ctk.CTkFrame(
             self.main_frame, fg_color=self.colors["panel"], corner_radius=12,
             border_width=1, border_color=self.colors["border"]
         )
-        self.details_container.grid(row=2, column=0, sticky="nsew", padx=(12, 12), pady=(6, 12))
-        self.main_frame.rowconfigure(2, weight=0)
+        self.details_container.grid(row=1, column=0, sticky="nsew", padx=(12, 12), pady=(12, 12))
+        self.main_frame.rowconfigure(1, weight=0)
 
         header_frame = ctk.CTkFrame(self.details_container, fg_color="transparent")
         header_frame.pack(fill="x", padx=8, pady=(8, 4))
@@ -897,16 +964,65 @@ class RoutingApp(ctk.CTk):
         self.last_result = result
         m = result.metrics
 
+        # Algoritma adı ve ağırlıklar
+        algo_name = getattr(result, 'algo_name', 'Bilinmeyen Algoritma')
+        weights = getattr(result, 'weights', (0.0, 0.0, 0.0))
+        w1, w2, w3 = weights
+
+        # Metrikler
         total_delay_ms = m.get('total_delay_ms', 0.0)
         total_reliability_pct = m.get('total_reliability_pct') if m.get('total_reliability_pct') is not None else (m.get('path_reliability', 0.0) * 100.0)
+        reliability_cost = m.get('reliability_cost', 0.0)
+        resource_cost = m.get('resource_cost', 0.0)
+        total_cost = m.get('total_cost', 0.0)
 
-        header_text = (
-            f"Toplam Gecikme: {total_delay_ms:.2f} ms   |   "
-            f"Toplam Güvenilirlik: {total_reliability_pct:.2f}%   |   "
-            f"Kaynak: {m.get('resource_cost', 0.0):.2f}   |   "
-            f"Toplam: {m.get('total_cost', 0.0):.2f}"
+        # Genel Yol Özeti - Üst kısım (kompakt özet kutusu)
+        summary_frame = ctk.CTkFrame(self.details_scroll, fg_color=self.colors["bg"], corner_radius=8, border_width=1, border_color=self.colors["border"])
+        summary_frame.pack(fill="x", padx=8, pady=(8, 12))
+        
+        # Özet başlığı
+        summary_title = ctk.CTkLabel(
+            summary_frame,
+            text="Genel Yol Özeti",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=self.colors["text"]
         )
-        ctk.CTkLabel(self.details_scroll, text=header_text, text_color=self.colors["text"], justify="left").pack(padx=8, pady=(6, 8), anchor="w")
+        summary_title.pack(padx=12, pady=(10, 6), anchor="w")
+        
+        # Özet bilgileri - kompakt format
+        summary_lines = [
+            f"Algoritma: {algo_name}",
+            f"Ağırlıklar: Wdelay={w1:.2f} | Wreliability={w2:.2f} | Wresource={w3:.2f}",
+            f"Toplam Gecikme: {total_delay_ms:.2f} ms",
+            f"Toplam Güvenilirlik: {total_reliability_pct:.2f}%  (Reliability Cost: {reliability_cost:.4f})",
+            f"Kaynak Maliyeti: {resource_cost:.2f}",
+            f"Toplam Maliyet: {total_cost:.4f}"
+        ]
+        
+        for line in summary_lines:
+            summary_label = ctk.CTkLabel(
+                summary_frame,
+                text=line,
+                font=ctk.CTkFont(size=11),
+                text_color=self.colors["text"],
+                anchor="w",
+                justify="left"
+            )
+            summary_label.pack(padx=12, pady=2, anchor="w")
+        
+        # Ayırıcı
+        separator = ctk.CTkFrame(summary_frame, fg_color=self.colors["border"], height=1)
+        separator.pack(fill="x", padx=12, pady=(8, 8))
+        
+        # Detay başlığı
+        detail_title = ctk.CTkLabel(
+            self.details_scroll,
+            text="Yol Detayları (Düğüm / Kenar Bazlı)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=self.colors["text"],
+            anchor="w"
+        )
+        detail_title.pack(padx=8, pady=(0, 6), anchor="w")
 
         for idx, hop in enumerate(hops):
             frame = ctk.CTkFrame(self.details_scroll, fg_color=self.colors["bg"], corner_radius=8)
@@ -997,6 +1113,36 @@ class RoutingApp(ctk.CTk):
         self.draw_graph(path=None)
         messagebox.showinfo("Bilgi", f"Grafik yenilendi. Seed={self.seed}")
 
+    def on_compare_algorithms(self):
+        """Algoritmaları karşılaştırma penceresini açar."""
+        if self.s_node == self.d_node:
+            messagebox.showwarning("Uyarı", "Kaynak ve hedef aynı olamaz.")
+            return
+        
+        # Ağırlıkları al ve normalize et
+        w1 = float(self.w_delay.get())
+        w2 = float(self.w_rel.get())
+        w3 = float(self.w_res.get())
+        s = w1 + w2 + w3
+        
+        if s <= 0:
+            messagebox.showwarning("Uyarı", "Ağırlıkların toplamı 0 olamaz.")
+            return
+        
+        if self.normalize_var.get():
+            w1, w2, w3 = w1 / s, w2 / s, w3 / s
+        
+        # Karşılaştırma penceresini aç
+        ComparisonWindow(
+            self,
+            self.G,
+            self.pos,
+            self.s_node,
+            self.d_node,
+            w1, w2, w3,
+            self.colors
+        )
+
     def on_calculate(self):
         if self.s_node == self.d_node:
             messagebox.showwarning("Uyarı", "Kaynak ve hedef aynı olamaz.")
@@ -1038,26 +1184,13 @@ class RoutingApp(ctk.CTk):
             if not result_dict.get('path'):
                 messagebox.showwarning("Uyarı", result_dict.get('notes', 'Yol bulunamadı.'))
                 self.draw_graph(path=None)
-                self.metrics.configure(text="")
                 return
 
             path = result_dict['path']
             self.draw_graph(path)
 
             m = result_dict.get('metrics', {})
-            total_delay = m.get('total_delay_ms') or m.get('total_delay') or 0.0
-            total_reliability_pct = m.get('total_reliability_pct') or (m.get('path_reliability', 0.0) * 100.0) or 0.0
-            resource_cost = m.get('resource_cost', 0.0)
-            total_cost = m.get('total_cost', 0.0)
-
-            self.metrics.configure(
-                text=(f"[{algo_name}]  Wdelay={w1:.2f}  Wrel={w2:.2f}  Wres={w3:.2f}   |   "
-                      f"Gecikme: {total_delay:.2f} ms   |   "
-                      f"Güvenilirlik: {total_reliability_pct:.2f}%   |   "
-                      f"Kaynak: {resource_cost:.2f}   |   "
-                      f"Toplam: {total_cost:.2f}")
-            )
-
+            
             # Details / hops
             try:
                 if 'hops' not in m or not m.get('hops'):
@@ -1067,6 +1200,8 @@ class RoutingApp(ctk.CTk):
                 fake_result = type('R', (), {})()
                 fake_result.metrics = m
                 fake_result.path = path
+                fake_result.algo_name = algo_name  # Algoritma adını ekle
+                fake_result.weights = (w1, w2, w3)  # Ağırlıkları ekle
                 self.populate_path_details(fake_result)
             except Exception as e:
                 messagebox.showwarning("Hata", f"Detaylar hazırlanırken hata: {e}")
@@ -1074,6 +1209,443 @@ class RoutingApp(ctk.CTk):
         finally:
             self.btn_calc.configure(state="normal", text="HESAPLA")
             self.update_idletasks()
+
+
+class ComparisonWindow(ctk.CTkToplevel):
+    """Algoritma karşılaştırma penceresi."""
+    
+    def __init__(self, parent, G, pos, src, dst, w_delay, w_rel, w_res, colors):
+        super().__init__(parent)
+        self.title("Algoritma Karşılaştırması")
+        self.geometry("1400x900")
+        self.configure(fg_color=colors["bg"])
+        
+        self.G = G
+        self.pos = pos
+        self.src = src
+        self.dst = dst
+        self.w_delay = w_delay
+        self.w_rel = w_rel
+        self.w_res = w_res
+        self.colors = colors
+        
+        # Progress tracking
+        self.is_running = False
+        self.progress_var = ctk.DoubleVar(value=0.0)
+        
+        # Build UI
+        self.build_ui()
+        
+        # Start comparison
+        self.after(100, self.start_comparison)
+    
+    def build_ui(self):
+        """UI bileşenlerini oluşturur."""
+        # Header
+        header = ctk.CTkFrame(self, fg_color=self.colors["panel"], corner_radius=12)
+        header.pack(fill="x", padx=20, pady=(20, 10))
+        
+        title = ctk.CTkLabel(
+            header,
+            text="Algoritma Karşılaştırması",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color=self.colors["text"]
+        )
+        title.pack(padx=16, pady=12)
+        
+        info_text = (
+            f"Kaynak: {self.src} | Hedef: {self.dst} | "
+            f"W_delay={self.w_delay:.2f} | W_rel={self.w_rel:.2f} | W_res={self.w_res:.2f}"
+        )
+        info_label = ctk.CTkLabel(
+            header,
+            text=info_text,
+            font=ctk.CTkFont(size=12),
+            text_color=self.colors["muted"]
+        )
+        info_label.pack(padx=16, pady=(0, 12))
+        
+        # Progress bar
+        self.progress_bar = ctk.CTkProgressBar(header, variable=self.progress_var, width=600)
+        self.progress_bar.pack(padx=16, pady=(0, 12))
+        
+        self.status_label = ctk.CTkLabel(
+            header,
+            text="Hazırlanıyor...",
+            font=ctk.CTkFont(size=12),
+            text_color=self.colors["muted"]
+        )
+        self.status_label.pack(padx=16, pady=(0, 12))
+        
+        # Main content (scrollable)
+        main_scroll = ctk.CTkScrollableFrame(self, fg_color=self.colors["bg"])
+        main_scroll.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        # Deney bağlamı açıklaması
+        context_frame = ctk.CTkFrame(main_scroll, fg_color=self.colors["panel"], corner_radius=12)
+        context_frame.pack(fill="x", padx=0, pady=(0, 12))
+        
+        context_label = ctk.CTkLabel(
+            context_frame,
+            text="ℹ️ Bu ekran, tek bir (Kaynak, Hedef) çifti için yapılan örnek bir karşılaştırmayı göstermektedir. "
+                 "Çoklu (S, D) deneyleri rapor bölümünde sunulmuştur.",
+            font=ctk.CTkFont(size=11),
+            text_color=self.colors["muted"],
+            justify="left",
+            wraplength=1200
+        )
+        context_label.pack(padx=16, pady=12, anchor="w")
+        
+        # Summary table
+        self.summary_frame = ctk.CTkFrame(main_scroll, fg_color=self.colors["panel"], corner_radius=12)
+        self.summary_frame.pack(fill="x", padx=0, pady=(0, 12))
+        
+        summary_title = ctk.CTkLabel(
+            self.summary_frame,
+            text="Özet Tablo (Algoritma Başına)",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=self.colors["text"]
+        )
+        summary_title.pack(padx=16, pady=(12, 8), anchor="w")
+        
+        self.summary_table_frame = ctk.CTkFrame(self.summary_frame, fg_color="transparent")
+        self.summary_table_frame.pack(fill="x", padx=16, pady=(0, 12))
+        
+        # Runs table
+        self.runs_frame = ctk.CTkFrame(main_scroll, fg_color=self.colors["panel"], corner_radius=12)
+        self.runs_frame.pack(fill="both", expand=True, padx=0, pady=(0, 12))
+        
+        runs_title = ctk.CTkLabel(
+            self.runs_frame,
+            text="Tüm Çalıştırmalar",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=self.colors["text"]
+        )
+        runs_title.pack(padx=16, pady=(12, 8), anchor="w")
+        
+        self.runs_table_frame = ctk.CTkScrollableFrame(self.runs_frame, height=300)
+        self.runs_table_frame.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+        
+        # Best paths visualization with graph
+        self.paths_frame = ctk.CTkFrame(main_scroll, fg_color=self.colors["panel"], corner_radius=12)
+        self.paths_frame.pack(fill="both", expand=True, padx=0, pady=(0, 12))
+        
+        paths_title = ctk.CTkLabel(
+            self.paths_frame,
+            text="En İyi Yollar Görselleştirmesi (Algoritma Başına)",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=self.colors["text"]
+        )
+        paths_title.pack(padx=16, pady=(12, 8), anchor="w")
+        
+        # Sekmeler için algoritma listesi
+        self.algo_names = ["ACO (Ant Colony)", "Genetik (GA)", "Q-Learning", "Simulated Annealing (SA)"]
+        
+        # Tab view (sekmeler)
+        self.path_tabs = ctk.CTkTabview(self.paths_frame)
+        self.path_tabs.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+        
+        # Her algoritma için sekme oluştur
+        self.tab_frames = {}
+        for algo_name in self.algo_names:
+            tab = self.path_tabs.add(algo_name)
+            self.tab_frames[algo_name] = tab
+        
+        # Matplotlib figure için container
+        self.path_figures = {}  # {algo_name: (fig, ax, canvas)}
+        
+        # Best paths text list
+        self.paths_content = ctk.CTkFrame(self.paths_frame, fg_color="transparent")
+        self.paths_content.pack(fill="x", padx=16, pady=(0, 12))
+    
+    def start_comparison(self):
+        """Karşılaştırmayı başlatır."""
+        if self.is_running:
+            return
+        
+        self.is_running = True
+        self.status_label.configure(text="Karşılaştırma başlatılıyor...")
+        self.progress_var.set(0.0)
+        
+        # Thread'de çalıştır (UI donmasın)
+        import threading
+        thread = threading.Thread(target=self.run_comparison, daemon=True)
+        thread.start()
+    
+    def run_comparison(self):
+        """Karşılaştırmayı çalıştırır (background thread)."""
+        try:
+            self.after(0, lambda: self.status_label.configure(text="Algoritmalar çalıştırılıyor... (5 çalıştırma/algoritma)"))
+            self.after(0, lambda: self.progress_var.set(0.1))
+            
+            # Karşılaştırmayı çalıştır
+            results = compare_algorithms(
+                self.G,
+                self.src,
+                self.dst,
+                self.w_delay,
+                self.w_rel,
+                self.w_res,
+                num_runs=5
+            )
+            
+            self.after(0, lambda: self.progress_var.set(0.9))
+            self.after(0, lambda: self.status_label.configure(text="Sonuçlar hazırlanıyor..."))
+            
+            # UI'yi güncelle
+            self.after(0, lambda: self.display_results(results))
+            
+            self.after(0, lambda: self.progress_var.set(1.0))
+            self.after(0, lambda: self.status_label.configure(text="Tamamlandı!"))
+            
+        except Exception as e:
+            self.after(0, lambda: self.status_label.configure(text=f"Hata: {str(e)}"))
+            messagebox.showerror("Hata", f"Karşılaştırma sırasında hata oluştu:\n{str(e)}")
+        finally:
+            self.is_running = False
+    
+    def display_results(self, results):
+        """Sonuçları ekranda gösterir."""
+        # Summary table
+        summary_table = results["summary_table"]
+        
+        # Başlık satırı - yeni format: [algo_name, avg_delay, avg_reliability_cost, avg_resource_cost, avg_total_cost, std_cost, best_cost, worst_cost, avg_runtime]
+        headers = ["Algoritma", "Ort. Gecikme (ms)", "Ort. Güvenilirlik Maliyeti", "Ort. Kaynak Maliyeti", 
+                   "Ort. Toplam Maliyet", "Std. Sapma", "En İyi", "En Kötü", "Ort. Süre (ms)"]
+        for col, header in enumerate(headers):
+            lbl = ctk.CTkLabel(
+                self.summary_table_frame,
+                text=header,
+                font=ctk.CTkFont(size=10, weight="bold"),
+                text_color=self.colors["text"],
+                width=130
+            )
+            lbl.grid(row=0, column=col, padx=3, pady=4, sticky="w")
+        
+        # Veri satırları
+        for row_idx, row_data in enumerate(summary_table, start=1):
+            algo_name = row_data[0]
+            avg_delay = row_data[1]
+            avg_reliability_cost = row_data[2]
+            avg_resource_cost = row_data[3]
+            avg_total_cost = row_data[4]
+            std_cost = row_data[5]
+            best_cost = row_data[6]
+            worst_cost = row_data[7]
+            avg_runtime = row_data[8]
+            
+            # Algoritma adı (ilk sütun)
+            algo_lbl = ctk.CTkLabel(
+                self.summary_table_frame,
+                text=algo_name,
+                font=ctk.CTkFont(size=10, weight="bold"),
+                text_color=self.colors["btn"],
+                width=130
+            )
+            algo_lbl.grid(row=row_idx, column=0, padx=3, pady=4, sticky="w")
+            
+            # Metrikler
+            values = [avg_delay, avg_reliability_cost, avg_resource_cost, avg_total_cost, 
+                     std_cost, best_cost, worst_cost, avg_runtime]
+            
+            for col_idx, value in enumerate(values, start=1):
+                if col_idx == 8:  # Runtime (son sütun)
+                    text = f"{value:.2f}"
+                elif col_idx == 5:  # Std. Sapma
+                    if value == 0.0:
+                        text = f"{value:.4f}*"
+                    else:
+                        text = f"{value:.4f}"
+                elif col_idx in [1, 2, 3, 4, 6, 7]:  # Costs
+                    if value == float('inf'):
+                        text = "∞"
+                    else:
+                        text = f"{value:.4f}"
+                else:
+                    text = str(value)
+                
+                lbl = ctk.CTkLabel(
+                    self.summary_table_frame,
+                    text=text,
+                    font=ctk.CTkFont(size=10),
+                    text_color=self.colors["text"],
+                    width=130
+                )
+                lbl.grid(row=row_idx, column=col_idx, padx=3, pady=4, sticky="w")
+        
+        # Standart sapma açıklaması
+        std_note = ctk.CTkLabel(
+            self.summary_frame,
+            text="* Standart sapma 0 ise, algoritma deterministik olarak çalışmaktadır.",
+            font=ctk.CTkFont(size=9),
+            text_color=self.colors["muted"]
+        )
+        std_note.pack(padx=16, pady=(0, 12), anchor="w")
+        
+        # Runs table
+        runs_table = results["runs_table"]
+        
+        # Başlık satırı
+        run_headers = ["Algoritma", "Run", "Gecikme", "Güvenilirlik", "Kaynak", "Toplam", "Süre (ms)", "Yol"]
+        for col, header in enumerate(run_headers):
+            lbl = ctk.CTkLabel(
+                self.runs_table_frame,
+                text=header,
+                font=ctk.CTkFont(size=10, weight="bold"),
+                text_color=self.colors["text"],
+                width=120
+            )
+            lbl.grid(row=0, column=col, padx=2, pady=2, sticky="w")
+        
+        # Veri satırları (ilk 50 satır)
+        max_rows = min(50, len(runs_table))
+        for row_idx, row_data in enumerate(runs_table[:max_rows], start=1):
+            for col_idx, value in enumerate(row_data):
+                if col_idx == 6:  # Runtime
+                    text = f"{value:.2f}"
+                elif col_idx == 7:  # Path
+                    path_str = " -> ".join(map(str, value[:5]))
+                    if len(value) > 5:
+                        path_str += "..."
+                    text = path_str if value else "Yok"
+                elif col_idx in [2, 3, 4, 5]:  # Metrics
+                    if value == float('inf'):
+                        text = "∞"
+                    else:
+                        text = f"{value:.4f}"
+                else:
+                    text = str(value)
+                
+                lbl = ctk.CTkLabel(
+                    self.runs_table_frame,
+                    text=text,
+                    font=ctk.CTkFont(size=9),
+                    text_color=self.colors["text"],
+                    width=120
+                )
+                lbl.grid(row=row_idx, column=col_idx, padx=2, pady=2, sticky="w")
+        
+        if len(runs_table) > max_rows:
+            info_lbl = ctk.CTkLabel(
+                self.runs_table_frame,
+                text=f"... ve {len(runs_table) - max_rows} satır daha",
+                font=ctk.CTkFont(size=9),
+                text_color=self.colors["muted"]
+            )
+            info_lbl.grid(row=max_rows + 1, column=0, columnspan=8, padx=2, pady=4)
+        
+        # Best paths
+        best_paths = results["best_paths_by_algo"]
+        
+        for algo_name, path in best_paths.items():
+            frame = ctk.CTkFrame(self.paths_content, fg_color=self.colors["bg"], corner_radius=8)
+            frame.pack(fill="x", padx=4, pady=4)
+            
+            algo_lbl = ctk.CTkLabel(
+                frame,
+                text=f"{algo_name}:",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=self.colors["btn"]
+            )
+            algo_lbl.pack(side="left", padx=8, pady=8)
+            
+            if path:
+                path_str = " -> ".join(map(str, path))
+                path_lbl = ctk.CTkLabel(
+                    frame,
+                    text=path_str,
+                    font=ctk.CTkFont(size=11),
+                    text_color=self.colors["text"],
+                    justify="left"
+                )
+                path_lbl.pack(side="left", padx=8, pady=8, fill="x", expand=True)
+            else:
+                no_path_lbl = ctk.CTkLabel(
+                    frame,
+                    text="Yol bulunamadı",
+                    font=ctk.CTkFont(size=11),
+                    text_color=self.colors["muted"]
+                )
+                no_path_lbl.pack(side="left", padx=8, pady=8)
+        
+        # Görselleştirme - her algoritma için grafik çiz
+        self.draw_path_visualizations(best_paths)
+    
+    def draw_path_visualizations(self, best_paths):
+        """Her algoritma için en iyi yolu grafik üzerinde çizer."""
+        # Grafik renkleri (RoutingApp'ten alınan değerler)
+        edge_color = "#A7B0C0"
+        node_color = "#A9C9F7"
+        path_color = "#F6B26B"
+        src_color = "#7BDCB5"
+        dst_color = "#FF8A8A"
+        
+        for algo_name in self.algo_names:
+            if algo_name not in self.tab_frames:
+                continue
+            
+            tab = self.tab_frames[algo_name]
+            path = best_paths.get(algo_name, [])
+            
+            # Matplotlib figure oluştur
+            fig, ax = plt.subplots(figsize=(10, 7), dpi=100)
+            fig.patch.set_facecolor(self.colors["panel"])
+            ax.set_aspect('equal', adjustable='box')
+            ax.set_axis_off()
+            
+            # Grafiği çiz
+            nx.draw_networkx_edges(
+                self.G, self.pos, ax=ax,
+                width=0.15, edge_color=edge_color, alpha=0.08
+            )
+            nx.draw_networkx_nodes(
+                self.G, self.pos, ax=ax,
+                node_size=10, node_color=node_color, alpha=0.9
+            )
+            
+            nx.draw_networkx_labels(
+                self.G, self.pos,
+                labels={n: str(n) for n in self.G.nodes()},
+                font_size=6,
+                font_color=self.colors.get("node_label", "#CBD5E1"),
+                ax=ax
+            )
+            
+            # Kaynak ve hedef düğümleri
+            nx.draw_networkx_nodes(
+                self.G, self.pos, ax=ax,
+                nodelist=[self.src], node_size=90, node_color=src_color
+            )
+            nx.draw_networkx_nodes(
+                self.G, self.pos, ax=ax,
+                nodelist=[self.dst], node_size=90, node_color=dst_color
+            )
+            
+            # Path çiz
+            if path and len(path) >= 2:
+                edges = list(zip(path, path[1:]))
+                nx.draw_networkx_edges(
+                    self.G, self.pos, ax=ax,
+                    edgelist=edges, width=2.8, edge_color=path_color, alpha=0.95
+                )
+                nx.draw_networkx_nodes(
+                    self.G, self.pos, ax=ax,
+                    nodelist=path, node_size=28, node_color=path_color, alpha=0.95
+                )
+            else:
+                # Path yoksa bilgi mesajı
+                ax.text(0.5, 0.5, "Yol bulunamadı", 
+                       transform=ax.transAxes,
+                       ha='center', va='center',
+                       fontsize=14, color=self.colors["muted"])
+            
+            # Canvas oluştur ve tab'e ekle
+            canvas = FigureCanvasTkAgg(fig, master=tab)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=8)
+            
+            # Sakla
+            self.path_figures[algo_name] = (fig, ax, canvas)
 
 
 if __name__ == "__main__":

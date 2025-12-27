@@ -3,8 +3,10 @@ Adapter layer to expose available algorithms in a consistent contract for the UI
 Each algorithm wrapper returns a dictionary matching the contract described in
 `algorithms/standart.py` (keys: path, metrics, per_node, per_edge, notes)
 """
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import networkx as nx
+import time
+import statistics
 
 # Standard
 # If a standalone 'standart' module is not available, use the project's
@@ -402,3 +404,193 @@ def run(name: str, G: nx.Graph, src: int, dst: int, w_delay: float, w_rel: float
     if not meta:
         raise ValueError(f"Bilinmeyen algoritma: {name}")
     return meta['wrapper'](G, src, dst, w_delay, w_rel, w_res, params)
+
+
+def compare(
+    G: nx.Graph,
+    src: int,
+    dst: int,
+    w_delay: float,
+    w_rel: float,
+    w_res: float,
+    num_runs: int = 5,
+    default_params: Optional[Dict[str, Dict[str, Any]]] = None
+) -> Dict[str, Any]:
+    """
+    Tüm algoritmaları aynı koşullarda karşılaştırır.
+    
+    Args:
+        G: NetworkX graph instance
+        src: Source node
+        dst: Destination node
+        w_delay: Delay weight
+        w_rel: Reliability weight
+        w_res: Resource weight
+        num_runs: Her algoritma için çalıştırma sayısı (N ≥ 5)
+        default_params: Algoritma adına göre varsayılan parametreler (opsiyonel)
+    
+    Returns:
+        {
+            "runs_table": List[List] - Her çalıştırma için [algorithm_name, run_id, total_delay, reliability_cost, resource_cost, total_cost, runtime_ms, path]
+            "summary_table": List[List] - Algoritma başına [avg_cost, std_cost, best_cost, worst_cost, avg_runtime]
+            "best_paths_by_algo": Dict[str, List[int]] - Algoritma adına göre en iyi path
+        }
+    """
+    # MetricsEngine'i import et
+    try:
+        from metrics.metric import MetricsEngine, Weights, PathMetrics
+    except ImportError:
+        raise RuntimeError("metrics.metric modülü bulunamadı. Metrik hesaplamaları için gerekli.")
+    
+    if num_runs < 5:
+        num_runs = 5
+    
+    # Varsayılan parametreleri hazırla
+    if default_params is None:
+        default_params = {}
+        for algo_name in list_algorithms():
+            meta = get_algorithm_meta(algo_name)
+            if meta and 'params' in meta:
+                algo_defaults = {}
+                for p in meta['params']:
+                    algo_defaults[p['name']] = p.get('default', 0)
+                default_params[algo_name] = algo_defaults
+    
+    # Normalize weights
+    total_w = w_delay + w_rel + w_res
+    if total_w <= 0:
+        raise ValueError("Ağırlıkların toplamı 0'dan büyük olmalıdır.")
+    w_delay_norm = w_delay / total_w
+    w_rel_norm = w_rel / total_w
+    w_res_norm = w_res / total_w
+    
+    weights_obj = Weights(w_delay_norm, w_rel_norm, w_res_norm)
+    engine = MetricsEngine(G)
+    
+    runs_table = []
+    algo_results = {}  # {algo_name: [(cost, runtime_ms, path, metrics), ...]}
+    
+    # Karşılaştırılacak algoritmalar
+    algorithms_to_compare = [
+        "ACO (Ant Colony)",
+        "Genetik (GA)",
+        "Q-Learning",
+        "Simulated Annealing (SA)"
+    ]
+    
+    # Her algoritma için N kez çalıştır
+    for algo_name in algorithms_to_compare:
+        if algo_name not in ALGORITHMS:
+            continue
+        
+        meta = get_algorithm_meta(algo_name)
+        if not meta or not meta.get('wrapper'):
+            continue
+        
+        # Algoritma için varsayılan parametreleri al
+        params = default_params.get(algo_name, {})
+        
+        algo_runs = []
+        
+        for run_id in range(1, num_runs + 1):
+            # Grafiği kopyala (pheromone gibi state'ler için)
+            G_copy = G.copy()
+            
+            # Runtime ölçümü
+            start_time = time.perf_counter()
+            
+            try:
+                # Algoritmayı çalıştır
+                result = run(algo_name, G_copy, src, dst, w_delay_norm, w_rel_norm, w_res_norm, params)
+                
+                end_time = time.perf_counter()
+                runtime_ms = (end_time - start_time) * 1000.0
+                
+                path = result.get('path', [])
+                
+                if not path or len(path) < 2:
+                    # Yol bulunamadı
+                    runs_table.append([
+                        algo_name, run_id, 0.0, 0.0, 0.0, float('inf'),
+                        runtime_ms, []
+                    ])
+                    algo_runs.append((float('inf'), runtime_ms, [], None))
+                    continue
+                
+                # Metrikleri MetricsEngine ile hesapla
+                pm = engine.compute(path)
+                total_cost = engine.weighted_sum(pm, weights_obj)
+                
+                # runs_table için veri hazırla
+                runs_table.append([
+                    algo_name,
+                    run_id,
+                    pm.total_delay_ms,
+                    pm.reliability_cost,
+                    pm.resource_cost,
+                    total_cost,
+                    runtime_ms,
+                    path.copy()
+                ])
+                
+                algo_runs.append((total_cost, runtime_ms, path.copy(), pm))
+                
+            except Exception as e:
+                end_time = time.perf_counter()
+                runtime_ms = (end_time - start_time) * 1000.0
+                runs_table.append([
+                    algo_name, run_id, 0.0, 0.0, 0.0, float('inf'),
+                    runtime_ms, []
+                ])
+                algo_runs.append((float('inf'), runtime_ms, [], None))
+        
+        algo_results[algo_name] = algo_runs
+    
+    # Summary table oluştur
+    summary_table = []
+    best_paths_by_algo = {}
+    
+    for algo_name in algorithms_to_compare:
+        if algo_name not in algo_results:
+            continue
+        
+        runs = algo_results[algo_name]
+        costs = [r[0] for r in runs if r[0] != float('inf')]
+        runtimes = [r[1] for r in runs]
+        metrics_list = [r[3] for r in runs if r[3] is not None]  # PathMetrics objects
+        
+        if not costs:
+            # Hiç başarılı çalıştırma yok
+            summary_table.append([
+                algo_name, 0.0, 0.0, 0.0, 0.0, 0.0, float('inf'), float('inf'), 0.0
+            ])
+            best_paths_by_algo[algo_name] = []
+            continue
+        
+        # Ortalama metrikler
+        avg_delay = statistics.mean([m.total_delay_ms for m in metrics_list]) if metrics_list else 0.0
+        avg_reliability_cost = statistics.mean([m.reliability_cost for m in metrics_list]) if metrics_list else 0.0
+        avg_resource_cost = statistics.mean([m.resource_cost for m in metrics_list]) if metrics_list else 0.0
+        
+        # Toplam maliyet istatistikleri
+        avg_cost = statistics.mean(costs)
+        std_cost = statistics.stdev(costs) if len(costs) > 1 else 0.0
+        best_cost = min(costs)
+        worst_cost = max(costs)
+        avg_runtime = statistics.mean(runtimes) if runtimes else 0.0
+        
+        # Summary table: [algo_name, avg_delay, avg_reliability_cost, avg_resource_cost, avg_total_cost, std_cost, best_cost, worst_cost, avg_runtime]
+        summary_table.append([
+            algo_name, avg_delay, avg_reliability_cost, avg_resource_cost, avg_cost, std_cost, best_cost, worst_cost, avg_runtime
+        ])
+        
+        # En iyi path'i bul (en düşük maliyetli)
+        best_idx = costs.index(best_cost)
+        best_path = runs[best_idx][2]
+        best_paths_by_algo[algo_name] = best_path if best_path else []
+    
+    return {
+        "runs_table": runs_table,
+        "summary_table": summary_table,
+        "best_paths_by_algo": best_paths_by_algo
+    }
