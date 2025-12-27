@@ -8,19 +8,19 @@ Kullanıcı; kaynak–hedef düğümlerini ve QoS ağırlıklarını **masaüst�
 
 ---
 
-## 👥 Proje Ekibi
+### 👥 Proje Ekibi
 
-| Ad Soyad |
-| :--- |
-| **Arda Şengün** |
-| **Yiğit Alakuş** |
-| **Fatma Zeynep Düz** |
-| **Melek Çakır** |
-| **Metin Öztaş** |
-| **Afif Agung** |
-| **Houmedali** |
-| **Ahmat Musa** |
-| **İrem Gül Doğan** |
+| Ad | Soyad |
+| :--- | :--- |
+| **Arda** | Şengün |
+| **Yiğit** | Alakuş |
+| **Fatma Zeynep** | Düz |
+| **Melek** | Çakır |
+| **Metin** | Öztaş |
+| **Afif** | Agung |
+| **Houmedali** | |
+| **Ahmat** | Musa |
+| **İrem Gül** | Doğan |
 
 ---
 
