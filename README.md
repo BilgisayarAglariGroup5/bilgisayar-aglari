@@ -1,94 +1,136 @@
-# QoS Tabanlı Rota Bulma Projesi
-Bilgisayar Ağları Dersi – Dönem Projesi (2025)
+# 🚀 QoS Tabanlı Rota Bulma ve Algoritma Karşılaştırma Sistemi
 
-Bu proje, bir ağ topolojisi üzerinde QoS (Quality of Service) kriterlerine göre en uygun rotayı bulan bir sistem geliştirmeyi amaçlar.
+**Bilgisayar Ağları Dersi – Dönem Projesi (2025)**
 
-Kullanıcı; kaynak–hedef düğümlerini ve QoS ağırlıklarını web arayüzünden seçer. Algoritmalar (GA, ACO vb.) bu verilere göre en iyi rotayı hesaplar.
+Bu proje, bir ağ topolojisi üzerinde **QoS (Quality of Service)** kriterlerine göre en uygun rotayı bulan ve farklı algoritmaların performansını **aynı koşullar altında karşılaştıran** bir **masaüstü uygulaması** geliştirmeyi amaçlamaktadır.
+
+Kullanıcı; kaynak–hedef düğümlerini ve QoS ağırlıklarını **masaüstü arayüz** üzerinden belirler. Algoritmalar (**ACO, Genetik Algoritma, Q-Q Learning, Simulated Annealing**) bu girdilere göre en uygun rotayı hesaplar ve sonuçlar **grafiksel ve sayısal olarak** kullanıcıya sunulur.
 
 ---
 
 ## 👥 Proje Ekibi
-- Arda Şengün
-- Yiğit Alakuş
-- Fatma Zeynep Düz
-- Melek Çakır
-- Metin Öztaş
-- Afif Agung
-- Houmedali
-- Ahmat Musa
-- İrem Gül Doğan
+
+| Ad Soyad |
+| :--- |
+| **Arda Şengün** |
+| **Yiğit Alakuş** |
+| **Fatma Zeynep Düz** |
+| **Melek Çakır** |
+| **Metin Öztaş** |
+| **Afif Agung** |
+| **Houmedali** |
+| **Ahmat Musa** |
+| **İrem Gül Doğan** |
 
 ---
 
 ## 🎯 Projenin Amacı
-Ağ üzerinde QoS kriterlerine göre “en iyi” rotayı bulmak ve bunu kullanıcıya açık, anlaşılır bir şekilde sunmak.
 
-Kriterler:
-- Gecikme (Delay)
-- Güvenilirlik (Reliability)
-- Kaynak Kullanımı (Resource Usage)
+Ağ üzerinde **QoS kriterlerini dikkate alarak “en iyi” rotayı bulmak** ve farklı algoritmaların bu problemi nasıl çözdüğünü **karşılaştırmalı olarak analiz etmektir**.
 
-Her bir kriter kullanıcı tarafından farklı ağırlıklarla ayarlanabilir.
+### Kullanılan QoS Kriterleri
+- **Gecikme (Delay)**
+- **Güvenilirlik (Reliability)** *(karşılaştırmalarda `-log` tabanlı maliyet olarak kullanılır)*
+- **Kaynak Kullanımı (Resource Usage)**
+
+Her kriterin ağırlığı kullanıcı tarafından masaüstü arayüz üzerinden dinamik olarak ayarlanabilir.
+
+---
+
+## ⚙️ Kullanılan Algoritmalar
+
+- 🐜 **Ant Colony Optimization (ACO)**
+- 🧬 **Genetik Algoritma (GA)**
+- 🤖 **Q-Q Learning**
+- 🔥 **Simulated Annealing (SA)**
+
+Tüm algoritmalar:
+- Aynı ağ grafiği
+- Aynı kaynak–hedef (S, D)
+- Aynı QoS ağırlıkları
+
+altında çalıştırılarak **adil bir karşılaştırma ortamı** sağlanır.
+
+---
+
+## 🖥️ Masaüstü Uygulama Özellikleri
+
+### 🔹 Tek Algoritma Modu
+- Seçilen algoritma için:
+  - En iyi rota hesaplanır
+  - Ağ grafiği **CustomTkinter arayüzü içinde** renkli olarak gösterilir
+  - Yol detayları (delay, bandwidth, reliability) listelenir
+
+### 🔹 Algoritma Karşılaştırma Modu
+- ACO, GA, Q-Q Learning ve SA algoritmaları:
+  - Aynı koşullarda **N kez (N ≥ 5)** çalıştırılır
+- Üretilen çıktılar:
+  - **Özet tablo** (ortalama maliyet, standart sapma, en iyi / en kötü sonuçlar, ortalama süre)
+  - **Tüm çalıştırmalar tablosu**
+  - **Algoritma bazlı en iyi yollar**
+- En iyi bulunan yollar grafik üzerinde karşılaştırmalı olarak gösterilir
 
 ---
 
 ## 📁 Proje Klasör Yapısı
 
-- **docs/**  
-  Proje PDF’leri, raporlar ve dokümanlar.
-
-- **web-ui/**  
-  Python tabanlı simülasyon ve görselleştirme arayüzü (Streamlit + PyVis).
-
-- **algorithms/**  
-  Rota bulma algoritmaları (GA, ACO, vb.) ve yardımcı fonksiyonlar.
-
-- **data/**  
-  Seed dosyaları, ağ topolojileri, test verileri.
-
-- **experiments/**  
-  Deney sonuçları, log dosyaları, performans kayıtları.
-
-- **scripts/**  
-  Otomasyon amaçlı scriptler.
-
-- **.github/workflows/**  
-  GitHub Actions ayar dosyaları.
-
+```text
+.
+├── docs/                # Proje PDF’leri, raporlar ve dokümantasyon
+├── algorithms/          # Algoritma kaynak kodları
+│   ├── ACO/
+│   ├── GA/
+│   ├── QLearning/
+│   ├── SimulatedAnnealing/
+│   └── utils/           # Ortak yardımcı fonksiyonlar
+├── metrics/             # QoS metrik hesaplamaları
+│   ├── Delay/
+│   ├── Reliability/     # Reliability Cost (-log)
+│   ├── Resource/
+│   └── TotalCost/
+├── data/                # Veri dosyaları
+│   ├── topology/        # Ağ topolojisi üretimi (seed tabanlı)
+│   └── datasets/        # Test ve örnek veri setleri
+├── experiments/         # Deney sonuçları ve loglar
+├── scripts/             # Yardımcı otomasyon ve test scriptleri
+└── .github/
+    └── workflows/       # GitHub Actions ayar dosyaları
+```
 ---
 
-## 🛠 Kullanılan Teknolojiler (Planlanan)
-- Python → Algoritmalar
-- Python(Streamlit + PyVis) → Web Arayüzü
-- JSON / GraphML → Ağ verileri
-- GitHub → Versiyon kontrolü ve ekip çalışması
+## 🛠 Kullanılan Teknolojiler
 
----
+* **Python:** Algoritmaların geliştirilmesi ve uygulama mantığı
+* **CustomTkinter (CTk):** Modern masaüstü kullanıcı arayüzü
+* **Matplotlib (TkAgg backend):** Ağ grafiğinin GUI içinde çizilmesi ve görselleştirilmesi
+* **NetworkX:** Ağ topolojisi oluşturma ve grafik modelleme
+* **NumPy:** Sayısal hesaplamalar ve yardımcı matematiksel işlemler
+* **Pandas:** Topoloji ve veri işleme
+* **GitHub:** Versiyon kontrolü ve ekip çalışması
 
-## 🚀 Çalışma Prensibi
-1. Kullanıcı web arayüzünden:
-   - Kaynak düğümünü seçer  
-   - Hedef düğümünü seçer  
-   - QoS ağırlıklarını ayarlar  
+## 🔄 Çalışma Prensibi
 
-2. Arayüz, backend’e bir istek gönderir.
+**Kullanıcı masaüstü arayüzünden:**
+* Kaynak düğümü (S)
+* Hedef düğümü (D)
+* QoS ağırlıklarını seçer
 
-3. Algoritmalar (GA/ACO):
-   - Ağı işler  
-   - Ağırlıklandırılmış QoS maliyetini hesaplar  
-   - En iyi rotayı belirler  
+**Seçilen algoritma(lar) çalıştırılır.**
 
-4. Bulunan rota tekrar web arayüzüne gönderilir.
+**Algoritmalar:**
+* Ağı işler
+* Ağırlıklandırılmış QoS maliyetini hesaplar
+* En iyi rotayı belirler
 
-5. Web arayüzü rotayı grafik olarak gösterir.
+**Sonuçlar:**
+* Grafik üzerinde görselleştirilir
+* Sayısal tablolar ile kullanıcıya sunulur
 
----
+## 📌 Teslim Tarihleri
 
-## 📌 Önemli Teslim Tarihleri
-- **Kaynak Kod Teslimi:** 31 Aralık 2025 – 23:59  
-- **Rapor Teslimi:** 7 Ocak 2026 – 23:59  
-
----
+* **Kaynak Kod Teslimi:** 📅 31 Aralık 2025 – 23:59
+* **Rapor Teslimi:** 📅 7 Ocak 2026 – 23:59
 
 ## 📄 Lisans
-Bu proje MIT Lisansı ile lisanslanmıştır.
+
+Bu proje **MIT Lisansı** ile lisanslanmıştır.
