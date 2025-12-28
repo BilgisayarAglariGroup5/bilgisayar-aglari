@@ -1,10 +1,9 @@
-
 import pandas as pd
 import networkx as nx
 
-# =====================================================
+# ===============================
 # TOPOLOGY YÜKLEME (NODE + EDGE)
-# =====================================================
+# ===============================
 def load_topology(
     node_csv="NodeData.csv",
     edge_csv="EdgeData.csv"
@@ -32,7 +31,11 @@ def load_topology(
             r_link=float(r["r_link"])
         )
 
-    print(f"Graph yüklendi | Node={G.number_of_nodes()} Edge={G.number_of_edges()}")
+    print(
+    f"Graph yüklendi\n"
+    f"Node = {G.number_of_nodes()}\n"
+    f"Edge = {G.number_of_edges()}"
+)
 
     # CONNECTIVITY KONTROLÜ
     if not nx.is_connected(G):
@@ -42,39 +45,37 @@ def load_topology(
     return G, node_df, edge_df
 
 
-# =====================================================
-# KAPASİTE KISITLI EN KISA YOL (HATALI DURUM KONTROLLÜ)
-# =====================================================
-def route_with_capacity(G, src, dst, demand):
+# =================================
+# SOFT-CONSTRAINT WEIGHT FUNCTION  
+# =================================
 
-    # NODE VAR MI?
-    if src not in G.nodes:
-        raise nx.NodeNotFound(f"Kaynak node yok: {src}")
-
-    if dst not in G.nodes:
-        raise nx.NodeNotFound(f"Hedef node yok: {dst}")
-
-    # DEMAND GEÇERLİ Mİ?
-    if demand <= 0:
-        raise ValueError("Demand pozitif olmalıdır.")
-
-    Gd = G.copy()
-
-    for u, v, data in list(Gd.edges(data=True)):
-        if data["capacity_mbps"] < demand:
-            Gd.remove_edge(u, v)
-
-    if not nx.has_path(Gd, src, dst):
-        raise ValueError(
-            "Kapasite kısıtı nedeniyle src ile dst arasında yol yok."
-        )
-
-    return nx.shortest_path(Gd, src, dst, weight="delay_ms")
+def capacity_aware_weight(u, v, data, demand_mbps):
+    """
+    Kapasite yetersizse çok büyük ceza verilir
+    """
+    if data["capacity_mbps"] < demand_mbps:
+        return 1e12  # soft penalty
+    return data["delay_ms"]
 
 
-# =====================================================
+# =================================
+# PATH FINDING 
+# =================================
+
+def find_path(G, src, dst, demand_mbps):
+    if src not in G or dst not in G:
+        raise nx.NodeNotFound("Src veya Dst yok")
+
+    return nx.shortest_path(
+        G,
+        src,
+        dst,
+        weight=lambda u, v, d: capacity_aware_weight(u, v, d, demand_mbps)
+    )
+
+# =================================
 # MAIN (INPUT SADECE BURADA)
-# =====================================================
+# =================================
 if __name__ == "__main__":
 
     try:
@@ -85,16 +86,17 @@ if __name__ == "__main__":
         dst = int(input("Hedef node (D): "))
         demand = float(input("Demand (Mbps): "))
 
-        path = route_with_capacity(G, src, dst, demand)
+       
+        path = find_path(G, src, dst, demand)
 
-        print("\n UYGUN YOL BULUNDU")
+        print("\nUYGUN YOL BULUNDU")
         print("Yol:", " -> ".join(map(str, path)))
 
     except nx.NodeNotFound as e:
-        print(f"\n NODE HATASI: {e}")
+        print(f"\nNODE HATASI: {e}")
 
     except ValueError as e:
-        print(f"\n TALEP / KAPASİTE HATASI: {e}")
+        print(f"\nTALEP / KAPASİTE HATASI: {e}")
 
     except Exception as e:
-        print(f"\n BEKLENMEYEN HATA: {e}")
+        print(f"\nBEKLENMEYEN HATA: {e}")
