@@ -1,142 +1,176 @@
-import sys
-import os
+# algorithms/SA_algoritma/SA.py
 import math
 import random
-from typing import Optional, Tuple
-
 import networkx as nx
+from typing import Optional, List, Tuple
 
-# ==================================================
-# ROOT projesini sys.path’e ekle
-# ==================================================
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-if ROOT_DIR not in sys.path:
-    sys.path.append(ROOT_DIR)
-
-# ==================================================
-# topology ice aktarma
-# ==================================================
-from data.network_topology import (
-    generate_connected_topology,
-    assign_node_attributes,
-    assign_edge_attributes
-)
-
-# ==================================================
-# Import METRICS 
-# ==================================================
 from metrics.metric import MetricsEngine, Weights
 
 
 # ==================================================
-# ADAPTER: attribute graph’u metric.py ile eşleştir
+# HARD BANDWIDTH CHECK (SERT KISIT)
 # ==================================================
-def adapt_graph_for_metrics(G: nx.Graph) -> nx.Graph:
-    # ---------- NODE ----------
-    for n, a in G.nodes(data=True):
-        a.setdefault("processing_delay_ms",
-                     a.get("processing_delay", a.get("proc_delay", 0.0)))
-        a.setdefault("node_reliability",
-                     a.get("node_reliability", a.get("reliability", 0.99)))
+def path_is_feasible(G: nx.Graph, path: List[int], demand: Optional[float]) -> bool:
+    """
+    Bu fonksiyon, verilen yolun (path) bant genişliği talebini (demand) karşılayıp karşılamadığını kontrol eder.
 
-    # ---------- EDGE ----------
+    - demand None ise: bant genişliği kısıtı kapalı demektir, yol her zaman geçerli kabul edilir.
+    - demand bir sayı ise: yol üzerindeki HER bir kenarın bandwidth değeri >= demand olmalıdır.
+      Aksi halde yol infeasible (geçersiz) olur.
+    """
+    if demand is None:
+        return True
+
+    demand = float(demand)
+
+    # zip(path[:-1], path[1:]) => (u,v) kenar çiftlerini üretir
+    for u, v in zip(path[:-1], path[1:]):
+        # Kenardaki bandwidth değerini oku (iki farklı isim ihtimaline karşı)
+        bw = G[u][v].get("bandwidth", G[u][v].get("bandwidth_mbps", 0))
+
+        # Eğer herhangi bir kenarda bw < demand ise yol geçersiz
+        if bw < demand:
+            return False
+
+    # Tüm kenarlar demand'i sağlıyorsa yol geçerli
+    return True
+
+
+def build_feasible_subgraph(G: nx.Graph, demand: Optional[float]) -> nx.Graph:
+    """
+    Bu fonksiyon, 'demand' değerini sağlayan kenarlardan oluşan bir alt grafik (subgraph) üretir.
+
+    Mantık:
+    - demand None ise: filtreleme yok, G grafiğini olduğu gibi döndür.
+    - demand varsa: capacity/bandwidth < demand olan kenarları tamamen grafikten çıkar.
+      Böylece shortest_path asla bu kenarları kullanamaz. (Hard constraint)
+    """
+    if demand is None:
+        return G
+
+    demand = float(demand)
+
+    # Yeni bir graph oluşturuyoruz (boş)
+    H = nx.Graph()
+
+    # Düğümleri aynı şekilde ekle (node attribute'lar kalsın)
+    H.add_nodes_from(G.nodes(data=True))
+
+    # Kenarları gez, sadece bw >= demand olanları ekle
     for u, v, a in G.edges(data=True):
-        a.setdefault("link_delay_ms",
-                     a.get("link_delay", a.get("link_delay_ms", 1.0)))
-        a.setdefault("capacity_mbps",
-                     a.get("bandwidth_mbps", a.get("bandwidth", 100.0)))
-        a.setdefault("link_reliability",
-                     a.get("link_reliability", a.get("reliability", 0.99)))
+        bw = a.get("bandwidth", a.get("bandwidth_mbps", 0))
+        if bw >= demand:
+            # Kenarı ve attribute’larını H'ye ekle
+            H.add_edge(u, v, **a)
 
-    return G
+    return H
 
 
 # ==================================================
-# SIMULATED ANNEALING
+# SIMULATED ANNEALING (HARD CONSTRAINT)
 # ==================================================
-def baslangic_yolu(G, s, d):
-    return nx.shortest_path(G, s, d, weight="link_delay_ms")
-
-
-def komsu_yol(G, yol, s, d):
-    if len(yol) <= 2:
-        return yol[:]
-
-    idx = list(range(1, len(yol) - 1))
-    random.shuffle(idx)
-
-    for i in idx:
-        try:
-            yeni = nx.shortest_path(G, yol[i], d, weight="link_delay_ms")
-            return yol[:i] + yeni
-        except nx.NetworkXNoPath:
-            continue
-
-    return yol[:]
-
-
 def simulated_annealing(
-    G, s, d,
+    G: nx.Graph,
+    source,
+    target,
     *,
     weights: Weights,
     demand_mbps: Optional[float] = None,
-    T0=5.0,
-    alpha=0.995,
-    max_iter=5000
-) -> Tuple[list, float, object]:
+    T0: float = 5.0,
+    alpha: float = 0.995,
+    max_iter: int = 5000,
+) -> Tuple[Optional[List[int]], float, Optional[object]]:
+    """
+    Simulated Annealing ile source -> target arasında çok amaçlı (multi-objective) rota optimizasyonu.
 
+    Önemli:
+    - demand_mbps bir HARD constraint olarak ele alınır.
+      Yani bw < demand olan kenarlar grafikten çıkarılır ve yol asla oradan geçemez.
+
+    Dönüş:
+    - best_path (List[int] veya None)
+    - best_score (float)
+    - best_metrics (MetricsEngine'in compute() çıktısı)
+    """
+
+    # Metrikleri hesaplayacak motor (delay, reliability, resource vs.)
     engine = MetricsEngine(G)
 
-    cur = baslangic_yolu(G, s, d)
-    cur_m = engine.compute(cur, demand_mbps=demand_mbps)
-    cur_score = engine.weighted_sum(cur_m, weights)
+    # ---- HARD FILTER GRAPH ----
+    # demand varsa: yetersiz BW'li kenarları çıkarıp filtrelenmiş grafiği kullan
+    Gf = build_feasible_subgraph(G, demand_mbps)
 
-    best = cur[:]
-    best_score = cur_score
-    best_m = cur_m
+    # Başlangıç çözümü: filtrelenmiş grafikte en kısa yol (delay'e göre)
+    try:
+        current = nx.shortest_path(Gf, source, target, weight="link_delay")
+    except nx.NetworkXNoPath:
+        # Demand yüzünden veya topoloji yüzünden hiç yol yoksa
+        return None, float("inf"), None
 
+    # Başlangıç yolunun metriklerini ve skorunu hesapla
+    current_m = engine.compute(current, demand_mbps=demand_mbps)
+    current_score = engine.weighted_sum(current_m, weights)
+
+    # En iyi çözümü başlangıç olarak ata
+    best = current[:]
+    best_score = current_score
+    best_m = current_m
+
+    # Başlangıç sıcaklığı
     T = T0
 
+    # SA ana döngüsü
     for _ in range(max_iter):
-        cand = komsu_yol(G, cur, s, d)
-        cand_m = engine.compute(cand, demand_mbps=demand_mbps)
+        # Yol çok kısaysa (source->target veya 1 ara düğüm), komşu üretmek anlamsız
+        if len(current) <= 2:
+            break
+
+        # Komşu üretimi:
+        # current yolunun içinden rastgele bir pivot seçiyoruz (baş ve son hariç)
+        i = random.randint(1, len(current) - 2)
+        pivot = current[i]
+
+        # Pivot -> target arasını yeniden shortest_path ile hesaplayıp
+        # current[:i] ile birleştirerek yeni aday yol oluşturuyoruz
+        try:
+            tail = nx.shortest_path(Gf, pivot, target, weight="link_delay")
+            candidate = current[:i] + tail
+        except nx.NetworkXNoPath:
+            # Pivot'tan target'a giden yol yoksa bu iterasyonu geç
+            T *= alpha
+            continue
+
+        # Ek güvenlik kontrolü:
+        # (Normalde Gf zaten filtreli, ama yine de kesin olsun diye kontrol ediyoruz)
+        if not path_is_feasible(G, candidate, demand_mbps):
+            T *= alpha
+            continue
+
+        # Aday yolun metriklerini ve skorunu hesapla
+        cand_m = engine.compute(candidate, demand_mbps=demand_mbps)
         cand_score = engine.weighted_sum(cand_m, weights)
 
-        delta = cand_score - cur_score
-        if delta <= 0 or random.random() < math.exp(-delta / T):
-            cur, cur_score, cur_m = cand, cand_score, cand_m
+        # Skor farkı: negatifse aday daha iyi (minimizasyon varsayımı)
+        delta = cand_score - current_score
 
-            if cur_score < best_score:
-                best, best_score, best_m = cur[:], cur_score, cur_m
+        # Kabul kriteri:
+        # - aday daha iyiyse (delta < 0) direkt kabul
+        # - daha kötüyse de bazen kabul edebilir (exp(-delta/T)) -> SA'nın kaçış mekanizması
+        if delta < 0 or random.random() < math.exp(-delta / max(T, 1e-9)):
+            current, current_score = candidate, cand_score
 
+            # Eğer kabul edilen aday en iyiden de iyiyse best'i güncelle
+            if cand_score < best_score:
+                best, best_score, best_m = candidate[:], cand_score, cand_m
+
+        # Sıcaklığı düşür (cooling)
         T *= alpha
         if T < 1e-6:
             break
 
+    # Final güvenlik:
+    # Her ihtimale karşı best yol demand'i sağlıyor mu?
+    if not path_is_feasible(G, best, demand_mbps):
+        return None, float("inf"), None
+
     return best, best_score, best_m
-
-
-# ==================================================
-# MAIN
-# ==================================================
-if __name__ == "__main__":
-    G = generate_connected_topology(250, 0.4, 100)
-    assign_node_attributes(G)
-    assign_edge_attributes(G)
-
-    G = adapt_graph_for_metrics(G)
-
-    kaynak, hedef = 0, 49
-    weights = Weights(0.33, 0.33, 0.34)
-
-    yol, skor, m = simulated_annealing(
-        G, kaynak, hedef,
-        weights=weights
-    )
-
-    print("En İyi Yol:", yol)
-    print("Toplam Skor:", skor)
-    print("Delay (ms):", m.total_delay_ms)
-    print("Reliability cost:", m.reliability_cost)
-    print("Resource cost:", m.resource_cost)
-    print("Bottleneck (Mbps):", m.bottleneck_capacity_mbps)
