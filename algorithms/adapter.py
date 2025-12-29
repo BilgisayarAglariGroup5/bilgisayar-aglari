@@ -132,16 +132,42 @@ def _wrap_genetic(G, src, dst, w_delay, w_rel, w_res, params: Dict[str, Any]):
     if not best_path:
         return {"path": [], "metrics": {}, "per_node": [], "per_edge": [], "notes": "Hiç yol bulunamadı."}
 
-    # Get path details from GA helper
-    details = get_path_details(best_path, G)
-
-    metrics = {
-        "total_delay_ms": details.get('total_delay', 0.0),
-        "path_reliability": details.get('total_reliability', 0.0),
-        "resource_cost": details.get('resource_cost', 0.0),
-        "total_cost": best_cost,
-        "weights": {"w_delay": w_delay, "w_rel": w_rel, "w_res": w_res},
-    }
+    # Demand mbps parametresini al (varsa) - önce demand_mbps, sonra demand_bw
+    demand_mbps = params.get('demand_mbps') or params.get('demand_bw')
+    if demand_mbps is None:
+        demand_mbps = 50.0  # Varsayılan değer
+    
+    # MetricsEngine ile metrikleri hesapla (demand_mbps ile)
+    try:
+        from metrics.metric import MetricsEngine, Weights
+        engine = MetricsEngine(G)
+        weights_obj = Weights(w_delay, w_rel, w_res)
+        pm = engine.compute(best_path, demand_mbps=demand_mbps)
+        
+        # Demand kısıtı kontrolü: Eğer yol demand'i karşılamıyorsa, yol bulunamadı olarak döndür
+        if not pm.feasible_for_demand:
+            return {"path": [], "metrics": {}, "per_node": [], "per_edge": [], 
+                   "notes": f"Yol bulundu ancak demand ({demand_mbps} Mbps) karşılanamıyor. Yolun minimum kapasitesi: {pm.bottleneck_capacity_mbps:.2f} Mbps."}
+        
+        total_cost = engine.weighted_sum(pm, weights_obj)
+        
+        metrics = {
+            "total_delay_ms": pm.total_delay_ms,
+            "path_reliability": pm.total_reliability,
+            "resource_cost": pm.resource_cost,
+            "total_cost": total_cost,
+            "weights": {"w_delay": w_delay, "w_rel": w_rel, "w_res": w_res},
+        }
+    except Exception:
+        # Fallback to original method
+        details = get_path_details(best_path, G)
+        metrics = {
+            "total_delay_ms": details.get('total_delay', 0.0),
+            "path_reliability": details.get('total_reliability', 0.0),
+            "resource_cost": details.get('resource_cost', 0.0),
+            "total_cost": best_cost,
+            "weights": {"w_delay": w_delay, "w_rel": w_rel, "w_res": w_res},
+        }
 
     # per_node & per_edge attempt to use graph attributes when available
     per_node = [{"düğüm": n, "resource_cost": None} for n in best_path]
@@ -163,6 +189,11 @@ def _wrap_qlearning(G, src, dst, w_delay, w_rel, w_res, params: Dict[str, Any]):
     episodes = int(params.get('episodes', 500))
     alpha = float(params.get('alpha', 0.1))
     gamma = float(params.get('gamma', 0.9))
+    
+    # Demand mbps parametresini al (varsa) - önce demand_mbps, sonra demand_bw
+    demand_mbps = params.get('demand_mbps') or params.get('demand_bw')
+    if demand_mbps is None:
+        demand_mbps = 50.0  # Varsayılan değer
 
     q_mod, m_mod = _import_q_learning()
     QLearningAgent = q_mod.QLearningAgent
@@ -174,19 +205,41 @@ def _wrap_qlearning(G, src, dst, w_delay, w_rel, w_res, params: Dict[str, Any]):
     if not best_path:
         return {"path": [], "metrics": {}, "per_node": [], "per_edge": [], "notes": "Hiç yol bulunamadı (Q-Learning)."}
 
-    # Compute metrics via q_metrics
-    total_delay = qmetrics.calculate_total_delay(G, best_path)
-    rel_cost = qmetrics.calculate_reliability_cost(G, best_path)
-    resource_cost = qmetrics.calculate_resource_cost(G, best_path)
-    total_cost = qmetrics.calculate_weighted_cost(G, best_path, w_delay, w_rel, w_res)
+    # MetricsEngine ile metrikleri hesapla (demand_mbps ile)
+    try:
+        from metrics.metric import MetricsEngine, Weights
+        engine = MetricsEngine(G)
+        weights_obj = Weights(w_delay, w_rel, w_res)
+        pm = engine.compute(best_path, demand_mbps=demand_mbps)
+        
+        # Demand kısıtı kontrolü: Eğer yol demand'i karşılamıyorsa, yol bulunamadı olarak döndür
+        if not pm.feasible_for_demand:
+            return {"path": [], "metrics": {}, "per_node": [], "per_edge": [], 
+                   "notes": f"Yol bulundu ancak demand ({demand_mbps} Mbps) karşılanamıyor. Yolun minimum kapasitesi: {pm.bottleneck_capacity_mbps:.2f} Mbps."}
+        
+        total_cost = engine.weighted_sum(pm, weights_obj)
+        
+        metrics = {
+            "total_delay_ms": pm.total_delay_ms,
+            "reliability_cost": pm.reliability_cost,
+            "resource_cost": pm.resource_cost,
+            "total_cost": total_cost,
+            "weights": {"w_delay": w_delay, "w_rel": w_rel, "w_res": w_res}
+        }
+    except Exception:
+        # Fallback to original q_metrics method
+        total_delay = qmetrics.calculate_total_delay(G, best_path)
+        rel_cost = qmetrics.calculate_reliability_cost(G, best_path)
+        resource_cost = qmetrics.calculate_resource_cost(G, best_path)
+        total_cost = qmetrics.calculate_weighted_cost(G, best_path, w_delay, w_rel, w_res)
 
-    metrics = {
-        "total_delay_ms": total_delay,
-        "reliability_cost": rel_cost,
-        "resource_cost": resource_cost,
-        "total_cost": total_cost,
-        "weights": {"w_delay": w_delay, "w_rel": w_rel, "w_res": w_res}
-    }
+        metrics = {
+            "total_delay_ms": total_delay,
+            "reliability_cost": rel_cost,
+            "resource_cost": resource_cost,
+            "total_cost": total_cost,
+            "weights": {"w_delay": w_delay, "w_rel": w_rel, "w_res": w_res}
+        }
 
     per_node = [{"düğüm": n} for n in best_path]
     per_edge = []
@@ -201,7 +254,8 @@ def _wrap_aco(G, src, dst, w_delay, w_rel, w_res, params: Dict[str, Any]):
     # Lightweight ACO wrapper that runs ant_walk/update_pheromone loop on provided graph
     num_iterations = int(params.get('num_iterations', 20))
     num_ants = int(params.get('num_ants', 15))
-    demand_bw = float(params.get('demand_bw', 1.0))
+    # Önce demand_mbps, sonra demand_bw kontrol et
+    demand_bw = float(params.get('demand_mbps') or params.get('demand_bw', 50.0))
     rho = float(params.get('rho', 0.1))
     Q = float(params.get('Q', 10.0))
 
@@ -271,6 +325,12 @@ def _wrap_aco(G, src, dst, w_delay, w_rel, w_res, params: Dict[str, Any]):
     if MetricsEngine is not None and weights_obj is not None:
         engine = MetricsEngine(G)
         pm = engine.compute(best_path, demand_mbps=demand_bw)
+        
+        # Demand kısıtı kontrolü: Eğer yol demand'i karşılamıyorsa, yol bulunamadı olarak döndür
+        if not pm.feasible_for_demand:
+            return {"path": [], "metrics": {}, "per_node": [], "per_edge": [], 
+                   "notes": f"Yol bulundu ancak demand ({demand_bw} Mbps) karşılanamıyor. Yolun minimum kapasitesi: {pm.bottleneck_capacity_mbps:.2f} Mbps."}
+        
         total_cost = engine.weighted_sum(pm, weights_obj)
         metrics = {"total_delay_ms": pm.total_delay_ms, "total_reliability": pm.total_reliability, "resource_cost": pm.resource_cost, "total_cost": total_cost, "weights": {"w_delay": w_delay, "w_rel": w_rel, "w_res": w_res}}
     else:
@@ -286,7 +346,12 @@ def _wrap_aco(G, src, dst, w_delay, w_rel, w_res, params: Dict[str, Any]):
 
 
 def _wrap_sa(G, src, dst, w_delay, w_rel, w_res, params: Dict[str, Any]):
-    demand_bw = float(params.get('demand_bw', 0.0)) if params.get('demand_bw', None) is not None else None
+    # Önce demand_mbps, sonra demand_bw kontrol et
+    demand_bw = params.get('demand_mbps') or params.get('demand_bw')
+    if demand_bw is not None:
+        demand_bw = float(demand_bw)
+    else:
+        demand_bw = 50.0  # Varsayılan değer (None ise)
     max_iter = int(params.get('max_iter', 5000))
 
     # Try loading SA implementation robustly via file import
@@ -331,6 +396,22 @@ def _wrap_sa(G, src, dst, w_delay, w_rel, w_res, params: Dict[str, Any]):
         return {"path": [], "metrics": {}, "per_node": [], "per_edge": [], "notes": "Hiç yol bulunamadı (SA)."}
 
     # best_m is a PathMetrics object
+    # Demand kısıtı kontrolü: Eğer yol demand'i karşılamıyorsa, yol bulunamadı olarak döndür
+    # Her zaman MetricsEngine ile tekrar hesaplayıp kontrol et (güvenli kontrol)
+    try:
+        from metrics.metric import MetricsEngine
+        engine = MetricsEngine(G)
+        pm = engine.compute(best_path, demand_mbps=demand_bw)
+        if not pm.feasible_for_demand:
+            return {"path": [], "metrics": {}, "per_node": [], "per_edge": [], 
+                   "notes": f"Yol bulundu ancak demand ({demand_bw} Mbps) karşılanamıyor. Yolun minimum kapasitesi: {pm.bottleneck_capacity_mbps:.2f} Mbps."}
+    except Exception as e:
+        # Hata durumunda da best_m'den kontrol et (fallback)
+        if hasattr(best_m, 'feasible_for_demand') and not best_m.feasible_for_demand:
+            bottleneck = getattr(best_m, 'bottleneck_capacity_mbps', 0.0)
+            return {"path": [], "metrics": {}, "per_node": [], "per_edge": [], 
+                   "notes": f"Yol bulundu ancak demand ({demand_bw} Mbps) karşılanamıyor. Yolun minimum kapasitesi: {bottleneck:.2f} Mbps."}
+
     metrics = {
         "total_delay_ms": getattr(best_m, 'total_delay_ms', 0.0),
         "total_reliability": getattr(best_m, 'total_reliability', 0.0),
@@ -355,7 +436,6 @@ ALGORITHMS = {
         "params": [
             {"name": "num_iterations", "type": "int", "label": "İterasyon Sayısı", "default": 20},
             {"name": "num_ants", "type": "int", "label": "Karınca Sayısı", "default": 15},
-            {"name": "demand_bw", "type": "float", "label": "Talep BW (Mbps)", "default": 1.0},
         ]
     },
     "Genetik (GA)": {
@@ -380,7 +460,6 @@ ALGORITHMS = {
         "key": "sa",
         "wrapper": None,  # set below after definition
         "params": [
-            {"name": "demand_bw", "type": "float", "label": "Talep BW (Mbps)", "default": 1.0},
             {"name": "max_iter", "type": "int", "label": "Max Iter", "default": 5000},
         ]
     }

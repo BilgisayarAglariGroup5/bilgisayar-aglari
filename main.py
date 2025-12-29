@@ -175,6 +175,13 @@ class RoutingApp(ctk.CTk):
             self.section_weight_lbl.configure(text_color=self.colors["text"])
         if hasattr(self, "hint_lbl"):
             self.hint_lbl.configure(text_color=self.colors["muted"])
+        
+        # Demand label theme
+        if hasattr(self, "demand_mbps_slider"):
+            self.demand_mbps_slider.configure(
+                progress_color=self.SOFT_BLUE,
+                button_color=self.SOFT_BLUE
+            )
 
         if hasattr(self, "lbl_s"):
             self.lbl_s.configure(text_color=self.colors["text"])
@@ -213,7 +220,7 @@ class RoutingApp(ctk.CTk):
                 hover_color=self.colors["bg"],
             )
 
-        for name in ["w_delay_lbl", "w_rel_lbl", "w_res_lbl"]:
+        for name in ["w_delay_lbl", "w_rel_lbl", "w_res_lbl", "demand_mbps_label"]:
             if hasattr(self, name):
                 getattr(self, name).configure(text_color=self.colors["muted"])
 
@@ -427,6 +434,37 @@ class RoutingApp(ctk.CTk):
         self.algo_param_widgets = {}
         self.on_algo_change(self.algo_menu.get())
 
+        # Demand mbps slider (0-1000)
+        demand_label = ctk.CTkLabel(
+            self.sidebar_scroll, text="Demand (Mbps)",
+            text_color=self.colors["text"],
+            font=ctk.CTkFont(size=12),
+            anchor="w",
+            justify="left"
+        )
+        demand_label.pack(padx=16, pady=(8, 4), anchor="w", fill="x")
+
+        self.demand_mbps_slider = ctk.CTkSlider(
+            self.sidebar_scroll, from_=0, to=1000,
+            progress_color=self.SOFT_BLUE,
+            button_color=self.SOFT_BLUE
+        )
+        self.demand_mbps_slider.set(50.0)  # Varsayılan değer
+        self.demand_mbps_slider.pack(fill="x", padx=16, pady=(0, 4))
+
+        self.demand_mbps_label = ctk.CTkLabel(
+            self.sidebar_scroll, text="50 Mbps",
+            text_color=self.colors["muted"],
+            font=ctk.CTkFont(size=11),
+            anchor="e"
+        )
+        self.demand_mbps_label.pack(padx=16, pady=(0, 8), anchor="e", fill="x")
+
+        # Slider değiştiğinde label'ı güncelle
+        self.demand_mbps_slider.configure(
+            command=lambda v: self.demand_mbps_label.configure(text=f"{int(float(v))} Mbps")
+        )
+
         self.normalize_var = ctk.BooleanVar(value=True)
         self.normalize_cb = ctk.CTkCheckBox(
             self.sidebar_scroll, 
@@ -535,6 +573,12 @@ class RoutingApp(ctk.CTk):
                     params[name] = val
             except Exception:
                 params[name] = val
+        
+        # Demand mbps değerini tüm algoritmalar için ekle
+        demand_mbps = float(self.demand_mbps_slider.get())
+        params['demand_mbps'] = demand_mbps
+        params['demand_bw'] = demand_mbps  # Bazı algoritmalar demand_bw kullanıyor
+        
         return params
 
     def slider_with_value(self, title, default, color):
@@ -1269,6 +1313,9 @@ class RoutingApp(ctk.CTk):
         if self.normalize_var.get():
             w1, w2, w3 = w1 / s, w2 / s, w3 / s
         
+        # Demand mbps değerini al
+        demand_mbps = float(self.demand_mbps_slider.get())
+        
         # Karşılaştırma penceresini aç
         ComparisonWindow(
             self,
@@ -1277,6 +1324,7 @@ class RoutingApp(ctk.CTk):
             self.s_node,
             self.d_node,
             w1, w2, w3,
+            demand_mbps,
             self.colors
         )
 
@@ -1351,7 +1399,7 @@ class RoutingApp(ctk.CTk):
 class ComparisonWindow(ctk.CTkToplevel):
     """Algoritma karşılaştırma penceresi."""
     
-    def __init__(self, parent, G, pos, src, dst, w_delay, w_rel, w_res, colors):
+    def __init__(self, parent, G, pos, src, dst, w_delay, w_rel, w_res, demand_mbps, colors):
         super().__init__(parent)
         self.title("Algoritma Karşılaştırması")
         self.geometry("1400x900")
@@ -1364,6 +1412,7 @@ class ComparisonWindow(ctk.CTkToplevel):
         self.w_delay = w_delay
         self.w_rel = w_rel
         self.w_res = w_res
+        self.demand_mbps = demand_mbps
         self.colors = colors
         
         # Progress tracking
@@ -1392,7 +1441,8 @@ class ComparisonWindow(ctk.CTkToplevel):
         
         info_text = (
             f"Kaynak: {self.src} | Hedef: {self.dst} | "
-            f"W_delay={self.w_delay:.2f} | W_rel={self.w_rel:.2f} | W_res={self.w_res:.2f}"
+            f"W_delay={self.w_delay:.2f} | W_rel={self.w_rel:.2f} | W_res={self.w_res:.2f} | "
+            f"Demand: {self.demand_mbps:.0f} Mbps"
         )
         info_label = ctk.CTkLabel(
             header,
@@ -1516,6 +1566,14 @@ class ComparisonWindow(ctk.CTkToplevel):
             self.after(0, lambda: self.progress_var.set(0.1))
             
             # Karşılaştırmayı çalıştır
+            # Tüm algoritmalar için demand_mbps parametresini ekle
+            default_params = {}
+            for algo_name in ["ACO (Ant Colony)", "Genetik (GA)", "Q-Learning", "Simulated Annealing (SA)"]:
+                default_params[algo_name] = {
+                    'demand_mbps': self.demand_mbps,
+                    'demand_bw': self.demand_mbps
+                }
+            
             results = compare_algorithms(
                 self.G,
                 self.src,
@@ -1523,7 +1581,9 @@ class ComparisonWindow(ctk.CTkToplevel):
                 self.w_delay,
                 self.w_rel,
                 self.w_res,
-                num_runs=5
+                num_runs=5,
+                default_params=default_params,
+                demand_mbps=self.demand_mbps
             )
             
             self.after(0, lambda: self.progress_var.set(0.9))
