@@ -142,10 +142,10 @@ def mutation(path, graph, src, dst, mutation_rate):
         return path 
     if len(path) < 3:
         return path
-    cut_index = random.randint(1, len(path) - 2)
+    cut_index = random.randint(1, len(path) - 2) # yolun kesilme indexi
     cut_node = path[cut_index]
-    partial_path = path[:cut_index + 1]
-    new_tail = generate_random_path(graph, cut_node, dst)
+    partial_path = path[:cut_index + 1] # yolun kesiminden geri kalan
+    new_tail = generate_random_path(graph, cut_node, dst) # generate_random_path ile kesilen noktadan başlıyan yeni bir yol oluşturuz.
     if new_tail is None:
         return path
     final_path = partial_path[:-1] + new_tail
@@ -156,6 +156,11 @@ def mutation(path, graph, src, dst, mutation_rate):
 # --- ADIM 6: ANA GENETİK ALGORİTMA FONKSİYONU ---
 
 def run_genetic_algorithm(graph, src, dst, config):
+
+    # ---------------------------------------------
+
+    # Konfigrasyon uyumluluğu için gerekli olan kısım
+
     # --- GÜVENLİK YAMASI: İsim uyuşmazlığını otomatik düzelt ---
     # Arayüzden gelen ham veriyi (s_ms, delay_ms vb.) bizim anlayacağımız dile çevirir.
     for n, data in graph.nodes(data=True):
@@ -171,6 +176,10 @@ def run_genetic_algorithm(graph, src, dst, config):
             data['link_reliability'] = data['r_link']
         if 'capacity_mbps' in data and 'capacity_mbps' not in data: # Zaten aynı ama garanti olsun
              data['capacity_mbps'] = data['capacity_mbps']
+
+    # --------------------------------------
+
+
     pop_size = config['pop_size']
     generations = config['generations']
     mutation_rate = config['mutation_rate']
@@ -198,7 +207,7 @@ def run_genetic_algorithm(graph, src, dst, config):
             stats = engine.compute(current_best_path)
             current_best_cost = engine.weighted_sum(stats, weights_obj)
             
-            if current_best_cost < best_cost:
+            if current_best_cost < best_cost:   # Maliyet ne kadar düşük olursa o kadar iyi o yüzden : current_best_cost < best_cost olarak yazdık
                 best_cost = current_best_cost
                 best_path = current_best_path
         except:
@@ -242,6 +251,11 @@ if __name__ == "__main__":
         print(f"Aranan yer: {data_folder_path}")
         sys.exit()
 
+
+
+    # -----------------------------------------------------
+    # Konfigrasyon uyumluluğu için gerekli olan kısım
+
     # --- KRİTİK ADIM: İSİM EŞLEŞTİRME (MAPPING) ---
     # Arkadaşının CSV'den okuduğu isimler -> Melek'in Motorunun beklediği isimler
     # Node: s_ms -> processing_delay_ms, r_node -> node_reliability
@@ -258,7 +272,10 @@ if __name__ == "__main__":
         if 'capacity_mbps' in data: data['capacity_mbps'] = data['capacity_mbps']
         
     print("--- Veri Eşleştirmesi Tamamlandı ---")
+    # -----------------------------------------------------
 
+
+    
     # --- RASTGELE BİR TALEP SEÇELİM ---
     # generate_demands silindiği için grafikten rastgele iki nokta seçiyoruz
     nodes_list = list(G.nodes())
