@@ -10,6 +10,7 @@ import sys
 import os
 import networkx as nx
 import math
+import random
 
 # --- PROJE DİZİN YAPILANDIRMASI ---
 # Bu bölüm, projenin farklı klasörlerdeki (data, metrics vb.) modüllerine erişebilmesini sağlar.
@@ -24,11 +25,17 @@ if DATA_DIR not in sys.path:
     sys.path.append(DATA_DIR)
 if METRICS_DIR not in sys.path:
     sys.path.append(METRICS_DIR)
+print("DEBUG DATA_DIR:", DATA_DIR)
+print("DEBUG data/topology içeriği:", os.listdir(DATA_DIR))
+
 
 # Gerekli özel motorların ve karınca çekirdek fonksiyonlarının içe aktarılması.
 import network_topology
 from metric import MetricsEngine, Weights
 from aco_core import ant_walk, update_pheromone, evaporate_pheromone
+
+node_csv_path = os.path.join(DATA_DIR, "NodeData.csv")
+edge_csv_path = os.path.join(DATA_DIR, "EdgeData.csv")
 
 def run_aco_main(
     num_iterations=20,     # Algoritmanın toplam kaç nesil/tur çalışacağı.
@@ -46,16 +53,20 @@ def run_aco_main(
     print("[INFO] Topoloji olusturuluyor...")
 
     # n=50: Düğüm sayısı, p=0.3: Her iki düğümün birbirine bağlanma olasılığı (Yoğunluk).
-    G = network_topology.generate_connected_topology(n=50, p=0.3, max_attempts=100)
+    G, node_df, edge_df = network_topology.load_topology(
+        node_csv=node_csv_path,
+        edge_csv=edge_csv_path
+)
+    # --- 2. ADIM: RASTGELE KAYNAK / HEDEF / TALEP --- 
+    # # Eğer kullanıcı değer girmezse rastgele düğümler ve rastgele bant genişliği seçilir 
+    # 
+    nodes = list(G.nodes()) 
+    src, dst = random.sample(nodes, 2) 
+    # Aynı düğüm seçilmesin diye sample kullanıyoruz
+    bw = random.choice([10, 20, 50, 100]) # Mbps, örnek seçenekler
 
-    # Düğümlere (node) işlem yükü ve hata payı, kenarlara (edge) ise gecikme ve bant genişliği atanır.
-    network_topology.assign_node_attributes(G)
-    network_topology.assign_edge_attributes(G)
+        
 
-    # --- 2. ADIM: TRAFİK TALEBİ TANIMLAMA ---
-    # Ağ üzerinde bir veri akışı senaryosu oluşturulur (Örn: A noktasından B noktasına 5 Mbps trafik).
-    demands = network_topology.generate_demands(G, num_demands=1)
-    src, dst, bw = demands[0]
 
     # Teknik uyumluluk için bant genişliği verileri 'capacity' etiketiyle de kopyalanır.
     for u, v, data in G.edges(data=True):
@@ -63,8 +74,28 @@ def run_aco_main(
             data["capacity_mbps"] = data["bandwidth_mbps"]
 
     # --- 3. ADIM: OPTİMİZASYON KRİTERLERİ VE AĞIRLIKLANDIRMA ---
-    # MetricsEngine: Yolun kalitesini (gecikme, güvenilirlik, maliyet) hesaplayan matematiksel motor.
     metrics_engine = MetricsEngine(G)
+    # MetricsEngine: Yolun kalitesini (gecikme, güvenilirlik, maliyet) hesaplayan matematiksel motor.
+    # -------------------------------------------------
+# METRICS ENGINE UYUMLULUK YAMASI (ZORUNLU)
+
+    for n, data in G.nodes(data=True):
+        if 's_ms' in data and 'processing_delay_ms' not in data:
+            data['processing_delay_ms'] = data['s_ms']
+        if 'r_node' in data and 'node_reliability' not in data:
+            data['node_reliability'] = data['r_node']
+
+    for u, v, data in G.edges(data=True):
+        if 'delay_ms' in data and 'link_delay_ms' not in data:
+            data['link_delay_ms'] = data['delay_ms']
+        if 'r_link' in data and 'link_reliability' not in data:
+            data['link_reliability'] = data['r_link']
+        if 'bandwidth_mbps' in data and 'capacity_mbps' not in data:
+            data['capacity_mbps'] = data['bandwidth_mbps']
+
+    print("[INFO] Metric uyumluluk eslestirmesi tamamlandi")
+# -------------------------------------------------
+
 
     # Weights: Kullanıcının önceliğini belirler. Burada gecikme ve güvenilirlik en ön planda.
     weights = Weights(w_delay=0.4, w_reliability=0.4, w_resource=0.2)
@@ -118,7 +149,8 @@ def run_aco_main(
 
         # --- 7. ADIM: FEROMON GÜNCELLEME (HAFIZA VE UNUTMA) ---
         # 1. Buharlaşma: Kimse tarafından kullanılmayan yolların feromonu azalır (Unutma).
-        evaporate_pheromone(G)
+        evaporate_pheromone(G, rho)
+
 
         # 2. Takviye: Başarılı yollardan geçen karıncalar o yolu feromonla işaretler (Öğrenme).
         for p, c in iteration_paths:
