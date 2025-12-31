@@ -3,7 +3,6 @@ import math
 import random
 import networkx as nx
 from typing import Optional, List, Tuple
-
 from metrics.metric import MetricsEngine, Weights
 
 
@@ -21,14 +20,16 @@ def path_is_feasible(G: nx.Graph, path: List[int], demand: Optional[float]) -> b
     if demand is None:
         return True
 
-    demand = float(demand)
+    demand = float(demand) # demand string/int gelirse sorun olmasın diye float’a çeviriyor.
 
     # zip(path[:-1], path[1:]) => (u,v) kenar çiftlerini üretir
     for u, v in zip(path[:-1], path[1:]):
-        # Kenardaki bandwidth değerini oku (iki farklı isim ihtimaline karşı)
+        # kenardaki bandwidth’i okuyor.
+        # attribute bazen "bandwidth" bazen "bandwidth_mbps" olabilir diye iki ihtimal var.
+        # ikisi de yoksa 0 kabul ediyor.
         bw = G[u][v].get("bandwidth", G[u][v].get("bandwidth_mbps", 0))
 
-        # Eğer herhangi bir kenarda bw < demand ise yol geçersiz
+        # herhangi bir kenar yetmiyorsa → yol komple geçersiz.
         if bw < demand:
             return False
 
@@ -42,27 +43,27 @@ def build_feasible_subgraph(G: nx.Graph, demand: Optional[float]) -> nx.Graph:
 
     Mantık:
     - demand None ise: filtreleme yok, G grafiğini olduğu gibi döndür.
-    - demand varsa: capacity/bandwidth < demand olan kenarları tamamen grafikten çıkar.
+    - demand varsa: capacity/bandwidth < demand olan kenarları tamamen grafikten çıkariyor.
       Böylece shortest_path asla bu kenarları kullanamaz. (Hard constraint)
     """
     if demand is None:
         return G
 
+    # demand float’a çevrilir
+    # H yeni boş graph (filtrelenmiş graph)
     demand = float(demand)
-
-    # Yeni bir graph oluşturuyoruz (boş)
     H = nx.Graph()
 
-    # Düğümleri aynı şekilde ekle (node attribute'lar kalsın)
+    # tüm düğümleri aynen kopyalar (attribute’lar dahil)
     H.add_nodes_from(G.nodes(data=True))
 
-    # Kenarları gez, sadece bw >= demand olanları ekle
+    # tüm kenarları dolaşır, a o kenarın attribute’ları (delay, reliability, bandwidth vs.)
     for u, v, a in G.edges(data=True):
+        # sadece bandwidth yeterliyse kenarı H’ye ekler (attribute’larıyla birlikte)
         bw = a.get("bandwidth", a.get("bandwidth_mbps", 0))
         if bw >= demand:
-            # Kenarı ve attribute’larını H'ye ekle
             H.add_edge(u, v, **a)
-
+    # Bant genişliği yetmeyen linkleri silip yeni graph üretir.”
     return H
 
 
@@ -81,37 +82,32 @@ def simulated_annealing(
     max_iter: int = 5000,
 ) -> Tuple[Optional[List[int]], float, Optional[object]]:
     """
-    Simulated Annealing ile source -> target arasında çok amaçlı (multi-objective) rota optimizasyonu.
+    Fungsi simulated_annealing, graph, source ve target alarak Simulated Annealing algoritmasını çalıştırır.
+    weights metriklerin önemini, demand_mbps ise bant genişliği kısıtını belirler. 
+    T0, alpha ve max_iter algoritmanın keşif davranışını kontrol eder. 
+    Fonksiyon, en iyi yolu, bu yolun maliyetini ve hesaplanan metrikleri döndürür.
 
-    Önemli:
-    - demand_mbps bir HARD constraint olarak ele alınır.
-      Yani bw < demand olan kenarlar grafikten çıkarılır ve yol asla oradan geçemez.
-
-    Dönüş:
-    - best_path (List[int] veya None)
-    - best_score (float)
-    - best_metrics (MetricsEngine'in compute() çıktısı)
     """
 
     # Metrikleri hesaplayacak motor (delay, reliability, resource vs.)
     engine = MetricsEngine(G)
 
     # ---- HARD FILTER GRAPH ----
-    # demand varsa: yetersiz BW'li kenarları çıkarıp filtrelenmiş grafiği kullan
+    # demand varsa: uygun olmayan kenarlar çıkarıldı.
     Gf = build_feasible_subgraph(G, demand_mbps)
 
-    # Başlangıç çözümü: filtrelenmiş grafikte en kısa yol (delay'e göre)
+    # İlk çözümü link_delay ağırlığına göre en kısa yol yapıyor.
     try:
         current = nx.shortest_path(Gf, source, target, weight="link_delay")
     except nx.NetworkXNoPath:
-        # Demand yüzünden veya topoloji yüzünden hiç yol yoksa
+        # Eğer demand yüzünden yol yoksa → direkt “no solution”.
         return None, float("inf"), None
 
     # Başlangıç yolunun metriklerini ve skorunu hesapla
     current_m = engine.compute(current, demand_mbps=demand_mbps)
     current_score = engine.weighted_sum(current_m, weights)
 
-    # En iyi çözümü başlangıç olarak ata
+    # Şu anki çözümü en iyisi sayıp kenara koyuyoruz
     best = current[:]
     best_score = current_score
     best_m = current_m
@@ -119,9 +115,9 @@ def simulated_annealing(
     # Başlangıç sıcaklığı
     T = T0
 
-    # SA ana döngüsü
+    # Her iterasyonda “komşu çözüm” üretip kabul edip etmeyeceğine bakıyor.
     for _ in range(max_iter):
-        # Yol çok kısaysa (source->target veya 1 ara düğüm), komşu üretmek anlamsız
+        # Yol sadece [source, target] gibi ise pivot seçip parçalamak mantıksız.
         if len(current) <= 2:
             break
 
@@ -136,7 +132,7 @@ def simulated_annealing(
             tail = nx.shortest_path(Gf, pivot, target, weight="link_delay")
             candidate = current[:i] + tail
         except nx.NetworkXNoPath:
-            # Pivot'tan target'a giden yol yoksa bu iterasyonu geç
+            # Pivot'tan target'a giden yol yoksa bu iterasyonu geç, sıcaklığı düşürür.
             T *= alpha
             continue
 
@@ -164,6 +160,7 @@ def simulated_annealing(
                 best, best_score, best_m = candidate[:], cand_score, cand_m
 
         # Sıcaklığı düşür (cooling)
+        # çok küçülürse artık rastgele kabul etme neredeyse yok → dur.
         T *= alpha
         if T < 1e-6:
             break
