@@ -131,11 +131,6 @@ altında çalıştırılarak **adil bir karşılaştırma ortamı** sağlanır.
 * Grafik üzerinde görselleştirilir
 * Sayısal tablolar ile kullanıcıya sunulur
 
-## 📌 Teslim Tarihleri
-
-* **Kaynak Kod Teslimi:** 📅 31 Aralık 2025 – 23:59
-* **Rapor Teslimi:** 📅 7 Ocak 2026 – 23:59
-
 ## 📄 Lisans
 
 Bu proje **MIT Lisansı** ile lisanslanmıştır.
